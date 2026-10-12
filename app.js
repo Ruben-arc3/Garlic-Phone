@@ -1,31 +1,85 @@
 /* Realtime API is served from this Pages origin through Pages Functions. */
 const REALTIME_URL = window.REALTIME_URL || location.origin;
 const app=document.querySelector('#app');
-const rounds=[
- {title:'Secretos que incomodan',seed:'Si un secreto te hace sentir inseguro, puedes contárselo a una persona adulta de confianza.'},
- {title:'Límites y respeto',seed:'Cuando alguien dice “no”, respetamos su límite y nos detenemos.'},
- {title:'Apoyo entre compañeros',seed:'Escucha sin juzgar y acompaña a tu amigo a buscar ayuda de una persona adulta segura.'},
- {title:'Cuidado en internet',seed:'No compartas una imagen por presión. Guarda evidencia si es seguro y pide apoyo.'}
-];
+
+// --- SISTEMA DE CATEGORÍAS DINÁMICAS ---
+const CATEGORIES = {
+  secretos: [
+    "Un amigo te pide guardar un secreto que te hace sentir inseguro",
+    "Alguien te muestra algo en el celular y te pide no decir nada a tus padres",
+    "Te piden compartir una foto tuya y te sientes incómodo"
+  ],
+  limites: [
+    "Una persona te toca el hombro sin permiso mientras juegan",
+    "Te invaden el espacio personal en el banco del escuela",
+    "Alguien te pide que hagas algo que no te parece bien"
+  ],
+  apoyo: [
+    "Tu compañero dice que se siente triste y nadie más nota",
+    "Alguien en tu equipo quiere hablar con un adulto pero tiene miedo",
+    "Ves a alguien siendo excluido y no sabes qué hacer"
+  ]
+};
+
+function getRandomRound() {
+  const keys = Object.keys(CATEGORIES);
+  const categoryKey = keys[Math.floor(Math.random() * keys.length)];
+  const phrases = CATEGORIES[categoryKey];
+  const seed = phrases[Math.floor(Math.random() * phrases.length)];
+  return {title: categoryKey[0].toUpperCase() + categoryKey.slice(1), seed};
+}
+
+// Seleccionar ronda inicial de forma dinámica
+let currentRound = getRandomRound();
+const rounds = [currentRound];
+// ----------------------
+
+// --- TIMER POR TURNO ---
+const TURN_TIME = 45; // segundos que tiene cada equipo por turno
+let turnTimer = null;
+let turnTimerSeconds = TURN_TIME;
+
+function startTurnTimer() {
+  if (turnTimer) clearInterval(turnTimer);
+  turnTimerSeconds = TURN_TIME;
+  const timerEl = document.createElement('div');
+  timerEl.className = 'turn-timer';
+  timerEl.innerHTML = `<span>${turnTimerSeconds}</span>`;
+  const hero = app.querySelector('.hero');
+  if (hero && !document.querySelector('.turn-timer')) {
+    hero.appendChild(timerEl);
+  }
+  
+  turnTimer = setInterval(() => {
+    turnTimerSeconds--;
+    timerEl.querySelector('span').textContent = turnTimerSeconds;
+    if (turnTimerSeconds <= 5) {
+      timerEl.style.color = '#ff7395';
+    }
+    if (turnTimerSeconds <= 0) {
+      clearInterval(turnTimer);
+      timerEl.remove();
+      message('⏰ Tiempo agotado! Pasando el turno automáticamente.');
+      send('next-turn');
+    }
+  }, 1000);
+}
+
+function stopTurnTimer() {
+  if (turnTimer) {
+    clearInterval(turnTimer);
+    turnTimer = null;
+    const el = document.querySelector('.turn-timer');
+    if (el) el.remove();
+  }
+}
+// ----------------------
+
 let socket=null, state=null, room='', playerId=localStorage.getItem('voces-player')||crypto.randomUUID(), role='';
 localStorage.setItem('voces-player',playerId);
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&','<':'<','>':'>','"':'"',"'":'''}[c]));
 function send(type,data={}){if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type,...data,playerId}));}
 function connect(code,as,token=''){room=code.toUpperCase();role=as;const url=new URL(`/room/${room}`,REALTIME_URL);url.protocol=url.protocol==='https:'?'wss:':'ws:';url.searchParams.set('role',as);url.searchParams.set('playerId',playerId);if(token)url.searchParams.set('token',token);socket=new WebSocket(url);socket.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='state'){state=m.state;render();}if(m.type==='error')message(m.message);};socket.onclose=()=>{if(app.dataset.screen!=='home')message('Se perdió la conexión. Recarga para volver a entrar.');};socket.onerror=()=>message('No se pudo conectar con la sala. Revisa la dirección del servidor.');}
 function message(s){const n=document.querySelector('.status');if(n)n.textContent=s;}
 function home(){socket?.close();app.dataset.screen='home';app.className='shell';app.innerHTML=`<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Juego educativo en vivo</div></header><section class="hero"><div class="eyebrow">Aprender jugando · cuidarnos en comunidad</div><h1>Las buenas respuestas<br>se construyen en equipo.</h1><p>Una dinámica de situaciones ficticias para practicar límites, apoyo y decisiones seguras.</p></section><section class="home-grid"><article class="card"><div class="eyebrow">Para el facilitador</div><h2>Crear una sala</h2><p>Proyecta el código y juega con el grupo desde el computador.</p><label class="field-label" for="host-name">Nombre visible</label><input class="input" id="host-name" maxlength="24" placeholder="Facilitador/a" value="Facilitador/a"><button class="btn full" id="create">Crear sala en vivo</button><div class="status" id="host-status"></div></article><article class="card"><div class="eyebrow">Para estudiantes</div><h2>Unirse al juego</h2><p>Entra desde tu celular con el código que ves en la pantalla.</p><label class="field-label" for="code">Código de sala</label><input class="input" id="code" maxlength="5" placeholder="ABCDE" autocomplete="one-time-code"><label class="field-label" for="nickname">Apodo (sin apellidos)</label><input class="input" id="nickname" maxlength="18" placeholder="Nombre o apodo"><button class="btn secondary full" id="join">Unirme a la sala</button><div class="status" id="join-status"></div></article></section><p class="footer">No compartas experiencias personales en el juego. Si necesitas hablar, acércate en privado al adulto designado por tu institución.</p>`;
-document.querySelector('#create').onclick=create;document.querySelector('#join').onclick=join;const codeInput=document.querySelector('#code');codeInput.oninput=e=>e.target.value=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'');const invited=new URLSearchParams(location.search).get('code');if(invited)codeInput.value=invited.toUpperCase();}
-async function create(){if(!REALTIME_URL)return messageHome('Configura REALTIME_URL en app.js con la URL de tu Worker.');const b=document.querySelector('#create');b.disabled=true;try{const r=await fetch(`${REALTIME_URL}/create`,{method:'POST'});if(!r.ok)throw new Error('No se pudo crear la sala.');const d=await r.json();room=d.code;role='host';connect(room,'host',d.token);}catch(e){messageHome(e.message)}finally{b.disabled=false}}
-function messageHome(s){const e=document.querySelector('#host-status');if(e)e.textContent=s;}
-function join(){if(!REALTIME_URL)return messageJoin('Esta sala aún no tiene configurado el servidor en tiempo real.');const c=document.querySelector('#code').value.trim(),n=document.querySelector('#nickname').value.trim();if(c.length!==5)return messageJoin('Escribe el código de 5 caracteres.');if(!n)return messageJoin('Escribe un apodo para entrar.');localStorage.setItem('voces-name',n);connect(c,'player');}
-function messageJoin(s){const e=document.querySelector('#join-status');if(e)e.textContent=s;}
-function teamBlock(index){const names=state?.players?.filter(p=>p.team===index)||[];return `<div class="team"><h3>Equipo ${index===0?'A':'B'}</h3><div class="players">${names.length?names.map(p=>`<span class="player-pill">${esc(p.name)}</span>`).join(''):'Esperando participantes…'}</div>${role==='player'&&state?.phase==='lobby'?`<button class="btn secondary" data-team="${index}" style="margin-top:12px">Elegir este equipo</button>`:''}</div>`;}
-function render(){if(!state)return;const screen=role==='host'?'host':'player';app.dataset.screen=screen;app.className=screen==='host'&&new URLSearchParams(location.search).has('proyector')?'projection':'shell';if(screen==='player'&&state.phase==='lobby')return renderJoin();if(state.phase==='lobby')return renderLobby();if(state.phase==='relay')return renderRound();if(state.phase==='reveal')return renderReveal();return renderEnd();}
-function renderJoin(){app.className='shell';app.innerHTML=`<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Conectado · sala ${esc(room)}</div></header><section class="hero"><div class="eyebrow">¡Ya estás dentro!</div><h1>Elige tu equipo</h1><p>Entra con el grupo que prefieras. Escucha, participa y cuida el respeto.</p></section><section class="team-list">${teamBlock(0)}${teamBlock(1)}</section><p class="footer">Puedes cambiar de equipo mientras la sala esté esperando.</p>`;app.querySelectorAll('[data-team]').forEach(b=>b.onclick=()=>send('team',{team:Number(b.dataset.team),name:localStorage.getItem('voces-name')||'Participante'}));}
-function renderLobby(){const joinUrl=`${location.origin}${location.pathname}?code=${encodeURIComponent(room)}`;const qrUrl=`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(joinUrl)}`;const counts=[0,1].map(i=>state.players.filter(p=>p.team===i).length);app.innerHTML=`<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">${role==='host'?'Vista de facilitación':'Sala en vivo'}</div></header><div class="room-head"><div><div class="eyebrow">Escanea el QR o escribe el código</div><div class="room-code">${esc(room)}</div><p style="color:var(--muted)">Abre <b>${esc(location.origin)}</b> en tu celular.</p></div>${role==='host'?`<div class="row"><img alt="QR para entrar a la sala" width="110" height="110" style="background:#fff;border:8px solid white;border-radius:10px" src="${qrUrl}"><button class="btn secondary" id="project">${new URLSearchParams(location.search).has('proyector')?'Salir de proyección':'Vista proyector'}</button><button class="btn" id="start" ${state.players.length===0?'disabled':''}>Iniciar teléfono</button></div>`:''}</div><div class="banner"><b>Acuerdo de cuidado:</b> trabajamos con frases educativas ficticias. No compartimos historias personales ni nombres. Si algo te preocupa, habla en privado con el adulto designado.</div><div class="room-layout"><section class="card"><div class="kicker">Participantes · ${state.players.length}</div><div class="team-list" style="margin-top:15px">${teamBlock(0)}${teamBlock(1)}</div></section><section class="card"><div class="kicker">Cómo se juega</div><h2 style="margin-top:14px">Dibuja · interpreta · pasa</h2><p>El primer jugador recibe una frase. Luego el equipo alterna entre dibujar la idea y escribir qué cree que representa el dibujo. Al final se revela la cadena completa.</p>${role==='host'?`<div class="status">${state.players.length===0?'Conéctate con al menos una persona para empezar.':state.players.length===1?'Con una persona se puede jugar la cadena en solitario.':'Inicia cuando los equipos estén listos.'}</div>`:'<div class="status">Esperando al facilitador…</div>'}</section></div>`;document.querySelector('#start')?.addEventListener('click',()=>send('start'));document.querySelector('#project')?.addEventListener('click',()=>{const u=new URL(location.href);if(u.searchParams.has('proyector'))u.searchParams.delete('proyector');else u.searchParams.set('proyector','1');history.replaceState({},'',u);app.className=u.searchParams.has('proyector')?'projection':'shell';document.querySelector('#project').textContent=u.searchParams.has('proyector')?'Salir de proyección':'Vista proyector';});app.querySelectorAll('[data-team]').forEach(b=>b.onclick=()=>send('team',{team:Number(b.dataset.team),name:localStorage.getItem('voces-name')||'Participante'}));}
-function currentInput(){const team=state.mine?.team??0;const chain=state.chains?.[team];if(!chain)return null;const playerIndex=(chain.step||0)%(state.players.filter(p=>p.team===team).length||1);if(state.mine?.index!==playerIndex)return null;return {team,chain,kind:chain.step%2===0?'draw':'text',entry:chain.entries.at(-1),step:chain.step};}
-function renderRound(){const r=rounds[state.roundIndex];if(role==='host'){const progress=state.chains||[];app.innerHTML=`<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Teléfono descompuesto · ronda ${state.roundIndex+1}/${rounds.length}</div></header><section class="hero"><div class="eyebrow">${esc(r.title)}</div><h1>El mensaje va pasando…</h1><p>En cada turno, una persona dibuja o interpreta el dibujo anterior. Al final comparamos el inicio con el resultado.</p></section><div class="room-layout">${[0,1].map(i=>`<section class="card"><div class="kicker">Equipo ${i===0?'A':'B'} · progreso</div><div class="room-code" style="font-size:52px">${progress[i]?.step||0}<span style="font-size:24px;color:var(--muted)"> / 4 pasos</span></div><div class="players">${progress[i]?.step>=4?'Cadena completa':'Esperando el siguiente turno…'}</div></section>`).join('')}</div><p class="footer">La frase inicial aparece solo al primer participante. Las cadenas se revelan al terminar.</p>`;}else{const turn=currentInput();const team=state.mine?.team??0;const chain=state.chains?.[team];if(!turn){app.innerHTML=`<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Equipo ${team===0?'A':'B'}</div></header><section class="hero"><div class="eyebrow">${esc(r.title)}</div><h1>El teléfono está pasando por el equipo.</h1><p>Cuando llegue tu turno, verás la última pista. No la compartas con otros equipos.</p></section><section class="card center"><div class="status">Esperando a que termine el paso actual…</div><div class="score" style="margin-top:16px">${chain?.step||0} / 4</div></section>`;return;}const clue=turn.entry;app.innerHTML=`<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Tu turno · Equipo ${team===0?'A':'B'}</div></header><section class="card"><div class="eyebrow">${esc(r.title)} · paso ${turn.step+1} de 4</div><h1 class="prompt">${turn.kind==='draw'?'Dibuja lo que entiendes':'Escribe qué crees que representa este dibujo'}</h1><p style="color:var(--muted)">${turn.kind==='draw'?'Haz un dibujo sencillo que comunique la idea.':'Interpreta el dibujo anterior con una frase breve.'}</p><div class="feedback">${clue?.kind==='image'?`<img alt="Dibujo del paso anterior" src="${clue.content}" style="display:block;max-width:100%;max-height:260px;margin:auto;border-radius:12px">`:`<b>Mensaje recibido:</b><br>${esc(clue?.content||r.seed)}`}</div>${turn.kind==='draw'?`<canvas id="canvas" width="600" height="360" style="width:100%;max-width:600px;height:auto;touch-action:none;background:#fff;border-radius:14px;margin-top:16px"></canvas><div class="row" style="margin-top:10px"><button class="btn secondary" id="clear">Borrar</button><button class="btn" id="submit">Pasar el dibujo</button></div>`:`<label class="field-label" for="guess">Tu interpretación</label><textarea id="guess" class="input" maxlength="140" rows="3" placeholder="Escribe una frase corta…" style="resize:vertical"></textarea><button class="btn full" id="submit">Pasar la frase</button>`}<p class="footer">Usa solo la idea del juego. No escribas nombres ni experiencias personales.</p></section>`;if(turn.kind==='draw'){const c=document.querySelector('#canvas'),ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);ctx.lineWidth=7;ctx.lineCap='round';ctx.strokeStyle='#222';let drawing=false;const point=e=>{const r=c.getBoundingClientRect();return{x:(e.clientX-r.left)*c.width/r.width,y:(e.clientY-r.top)*c.height/r.height}};c.onpointerdown=e=>{drawing=true;c.setPointerCapture(e.pointerId);const p=point(e);ctx.beginPath();ctx.moveTo(p.x,p.y)};c.onpointermove=e=>{if(!drawing)return;const p=point(e);ctx.lineTo(p.x,p.y);ctx.stroke()};c.onpointerup=()=>drawing=false;document.querySelector('#clear').onclick=()=>{ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height)};document.querySelector('#submit').onclick=()=>{const content=c.toDataURL('image/jpeg',.55);send('submit',{content,kind:'image',team});};}else{document.querySelector('#submit').onclick=()=>{const content=document.querySelector('#guess').value.trim();if(content)send('submit',{content,kind:'text',team});};}}
-}
-function renderReveal(){const r=rounds[state.roundIndex];const chains=state.chains||[];const card=(entry,i)=>`<div class="card" style="min-width:190px;max-width:240px"><div class="kicker">${i===0?'Frase inicial':`Paso ${i}`}</div>${entry.kind==='image'?`<img alt="Dibujo del teléfono descompuesto" src="${entry.content}" style="width:100%;border-radius:10px;margin-top:10px">`:`<p style="margin-top:12px;color:white">${esc(entry.content)}</p>`}</div>`;app.innerHTML=`<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Revelación · ronda ${state.roundIndex+1}</div></header><section class="hero"><div class="eyebrow">${esc(r.title)}</div><h1>¿Cómo cambió el mensaje?</h1><p>La idea inicial es una guía para cuidarnos; la actividad muestra cómo un mensaje puede cambiar al pasar de persona a persona.</p></section>${[0,1].map(i=>`<section class="card" style="margin-bottom:18px"><div class="kicker" style="margin-bottom:14px">Equipo ${i===0?'A':'B'} · cadena completa</div><div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;align-items:stretch">${(chains[i]?.entries||[]).map((e,j)=>card(e,j)).join('<div style="align-self:center;color:var(--lime);font-size:28px">→</div>')}</div></section>`).join('')}<section class="banner"><b>Conversación final:</b> ¿qué parte de la idea se mantuvo? ¿Qué paso seguro recuerdas y a qué persona adulta podrías acudir? No compartimos historias personales en público.</section><div class="team-list"><div class="team"><h3>Equipo A</h3><div class="score">${state.scores?.[0]||0}</div></div><div class="team"><h3>Equipo B</h3><div class="score">${state.scores?.[1]||0}</div></div></div>${role==='host'?`<div class="center" style="margin-top:22px"><button class="btn" id="next">${state.roundIndex+1===rounds.length?'Ver cierre':'Siguiente cadena'}</button></div>`:''}<p class="footer">Si alguien necesita apoyo, invítalo a conversar en privado con el adulto designado.</p>`;document.querySelector('#next')?.addEventListener('click',()=>send('next'));}
-function renderEnd(){const score=state.scores||[0,0];app.innerHTML=`<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Cierre de la actividad</div></header><section class="hero"><div class="eyebrow">Gracias por participar</div><h1>Una comunidad que escucha, protege.</h1><p>Recordemos: puedes decir no, pedir ayuda y acompañar a alguien sin juzgarle.</p></section><section class="card center"><div class="kicker">Puntaje final</div><div class="team-list" style="margin:24px auto;max-width:500px"><div class="team"><h3>Equipo A</h3><div class="score">${score[0]}</div></div><div class="team"><h3>Equipo B</h3><div class="score">${score[1]}</div></div></div><p>La seguridad y el apoyo mutuo son el logro más importante.</p>${role==='host'?'<button class="btn secondary" id="again">Volver a la sala</button>':''}</section><p class="footer">Si esta actividad te hizo pensar en algo que te está pasando, puedes acercarte en privado al orientador/a o adulto responsable de protección de tu institución. No tienes que contarlo frente al grupo.</p>`;document.querySelector('#again')?.addEventListener('click',()=>send('reset'));}
-home();
+document.querySelector('#create').onclick=create;document.querySelector('#join').onclick=join;const codeInput=document.querySelector('#code');codeInput.oninput=e=>e.target.value=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'');const invited=new URLSearchParams(location.search).get('code');if(invited)codeInput.value=invited.toUpperCase();
