@@ -20,13 +20,15 @@ La interfaz y las rutas `/create` y `/room/:code` se sirven desde el mismo domin
 
 Despliega el Worker con Wrangler. Pages Functions usa el mismo dominio y no requiere editar una URL del Worker en `app.js`.
 
-## Controles incluidos
+## Mecánica del juego
 
-- Apodos, sin cuenta ni apellidos requeridos.
-- Cuatro situaciones y respuestas predefinidas, sin chat ni texto libre del alumnado.
-- Elección de equipo, respuesta individual y puntaje sincronizado.
-- Mensajes que recuerdan no compartir experiencias personales y orientan a pedir apoyo en privado.
+- Dos equipos conectados a una sala en vivo.
+- Cada cadena empieza con una frase educativa, que solo ve el primer participante de ese equipo.
+- El equipo alterna cuatro turnos de dibujo e interpretación escrita desde los celulares.
+- Al completar la cadena, la pantalla proyectada revela la frase original, los dibujos y las interpretaciones para conversar sobre cómo se transmitió el mensaje.
+- Las frases tratan de límites, pedir ayuda y apoyo entre compañeros; no se solicita que nadie comparta experiencias personales.
+- Apodos sin cuenta ni apellidos requeridos.
 
 ## Antes de usar con estudiantes
 
-Este prototipo es una base funcional, no un sistema institucional de atención. Revisar lenguaje y situaciones con orientación escolar, ajustarlos a la edad y al protocolo local de protección. La versión inicial no debe usarse para recibir denuncias o recopilar relatos personales.
+Este prototipo debe probarse y revisarse con orientación escolar antes de usarlo con estudiantes. Ajustar el lenguaje a la edad y al protocolo local de protección. No está diseñado para recibir denuncias ni recopilar relatos personales.
