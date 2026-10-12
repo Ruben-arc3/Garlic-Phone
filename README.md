@@ -9,16 +9,16 @@ Juego web para una campaña escolar, con pantalla de facilitación y participant
 
 ## Despliegue
 
-1. Sube esta carpeta a un repositorio Git.
-2. Desde `worker/`, ejecuta `npx wrangler deploy`. En una cuenta Cloudflare gratuita esto crea el Worker y el namespace Durable Object SQLite.
-3. Copia la URL publicada del Worker (por ejemplo `https://voces-en-equipo-realtime.<tu-subdominio>.workers.dev`).
-4. En `app.js`, sustituye `const REALTIME_URL = window.REALTIME_URL || '';` por la URL, sin `/` final.
-5. Importa el repositorio en Cloudflare Pages. Como el sitio es estático, usa Build command vacío y directorio de salida `.` (o configura un directorio raíz del proyecto acorde a tu repositorio).
-6. Abre la URL Pages en el computador. Crea una sala y proyecta el QR/código. Para generar un QR, se puede añadir después; en esta versión el código se comparte en pantalla y los estudiantes abren el enlace del sitio.
+La interfaz y las rutas `/create` y `/room/:code` se sirven desde el mismo dominio Pages. El Worker solo aloja Durable Objects; Pages Functions se conecta al binding `ROOMS` configurado en `wrangler.jsonc`.
+
+1. Despliega primero el Worker de salas desde `worker/` con `npx wrangler deploy`. Su nombre debe ser `voces-en-equipo-realtime`, como figura en el binding Pages.
+2. En Cloudflare Pages, conecta el repositorio `Ruben-arc3/Garlic-Phone`. La raíz del proyecto es la raíz del repositorio y el directorio de salida es `.`. La configuración Wrangler de Pages está en `wrangler.jsonc`.
+3. Si Cloudflare ya tenía configurado el proyecto Pages, revisa que use el `wrangler.jsonc` actual o que tenga el binding Durable Object `ROOMS` con clase `Room` y Worker `voces-en-equipo-realtime`. Luego vuelve a desplegar Pages.
+4. Abre el dominio Pages. El facilitador crea una sala; estudiantes escanean el QR o escriben el código.
 
 ## Local
 
-Despliega el Worker con Wrangler y sirve el directorio raíz con cualquier servidor estático local. Configura `REALTIME_URL` en `app.js` con la URL del Worker. Usa `wrangler dev` para ejecutar localmente el backend; para Durable Objects locales, consulta la guía vigente de Wrangler.
+Despliega el Worker con Wrangler. Pages Functions usa el mismo dominio y no requiere editar una URL del Worker en `app.js`.
 
 ## Controles incluidos
 

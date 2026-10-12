@@ -1,5 +1,5 @@
-/* Configure REALTIME_URL to point at the deployed Worker, e.g. https://voces-sala.<subdomain>.workers.dev */
-const REALTIME_URL = window.REALTIME_URL || '';
+/* Realtime API is served from this Pages origin through Pages Functions. */
+const REALTIME_URL = window.REALTIME_URL || location.origin;
 const app=document.querySelector('#app');
 const rounds=[
  {title:'Un secreto que pesa',prompt:'A una estudiante una persona conocida le pide guardar en secreto mensajes que la hacen sentir incómoda. ¿Qué respuesta ayuda más?',choices:['Guardar el secreto para no causar problemas.','Contárselo a una persona adulta de confianza y pedir apoyo.','Responder con más información personal para aclarar.'],correct:1,explanation:'Si un secreto genera miedo, presión o incomodidad, está bien contarlo. La responsabilidad nunca es de quien pide ayuda.'},

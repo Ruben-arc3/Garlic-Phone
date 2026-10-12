@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "garlic-phone-pages",
+  "pages_build_output_dir": ".",
+  "compatibility_date": "2026-10-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ROOMS",
+        "class_name": "Room",
+        "script_name": "voces-en-equipo-realtime"
+      }
+    ]
+  }
+}
