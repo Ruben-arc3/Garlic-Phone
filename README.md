@@ -24,9 +24,9 @@ Despliega el Worker con Wrangler. Pages Functions usa el mismo dominio y no requ
 
 - Dos equipos conectados a una sala en vivo.
 - Cada cadena empieza con una frase educativa, que solo ve el primer participante de ese equipo.
-- El equipo alterna cuatro turnos de dibujo e interpretación escrita desde los celulares.
+- En los turnos de dibujo, el equipo dibuja en papel y un jugador toma/sube una foto comprimida desde el celular; en los otros turnos, otro jugador interpreta el dibujo por escrito.
 - Al completar la cadena, la pantalla proyectada revela la frase original, los dibujos y las interpretaciones para conversar sobre cómo se transmitió el mensaje.
-- Las frases tratan de límites, pedir ayuda y apoyo entre compañeros; no se solicita que nadie comparta experiencias personales.
+- Las frases tratan de límites, pedir ayuda y apoyo entre compañeros; no se solicita que nadie comparta experiencias personales. La pantalla recuerda fotografiar solo la hoja, sin caras ni datos identificables.
 - Apodos sin cuenta ni apellidos requeridos.
 
 ## Antes de usar con estudiantes

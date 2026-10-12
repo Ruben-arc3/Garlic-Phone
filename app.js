@@ -118,22 +118,58 @@ function renderRelay() {
     app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Equipo ${team ? 'B' : 'A'}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(round.title)}</div><h1>El teléfono está pasando por el equipo.</h1><p>Cuando llegue tu turno, verás el aporte anterior. No lo compartas con el otro equipo.</p></section><section class="card center"><div class="status">Esperando el siguiente turno…</div><div class="score" style="margin-top:16px">${step} / 4</div></section>`;
     return;
   }
-  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Tu turno · Equipo ${turn.team ? 'B' : 'A'}</div></header><section class="card"><div class="eyebrow">${escapeHtml(round.title)} · paso ${turn.step + 1} de 4</div><h1 class="prompt">${turn.kind === 'image' ? 'Dibuja lo que entiendes' : '¿Qué crees que representa el dibujo?'}</h1><div class="feedback">${turn.clue?.kind === 'image' ? `<img alt="Dibujo anterior" src="${turn.clue.content}" style="display:block;max-width:100%;max-height:260px;margin:auto;border-radius:12px">` : `<b>Mensaje recibido:</b><br>${escapeHtml(turn.clue?.content || round.seed)}`}</div>
-    ${turn.kind === 'image' ? `<canvas id="canvas" width="600" height="360" style="width:100%;max-width:600px;height:auto;touch-action:none;background:white;border-radius:14px;margin-top:16px"></canvas><div class="row" style="margin-top:10px"><button class="btn secondary" id="clear">Borrar</button><button class="btn" id="submit">Pasar dibujo</button></div>` : `<label class="field-label" for="guess">Tu interpretación (máximo 140 caracteres)</label><textarea id="guess" class="input" maxlength="140" rows="3" placeholder="Escribe una frase breve…"></textarea><button class="btn full" id="submit">Pasar frase</button>`}<p class="footer">No escribas nombres ni experiencias personales.</p></section>`;
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Tu turno · Equipo ${turn.team ? 'B' : 'A'}</div></header><section class="card"><div class="eyebrow">${escapeHtml(round.title)} · paso ${turn.step + 1} de 4</div><h1 class="prompt">${turn.kind === 'image' ? 'Dibujen en una hoja y suban una foto' : '¿Qué crees que representa el dibujo?'}</h1><div class="feedback">${turn.clue?.kind === 'image' ? `<img alt="Dibujo anterior" src="${turn.clue.content}" style="display:block;max-width:100%;max-height:260px;margin:auto;border-radius:12px">` : `<b>Mensaje recibido:</b><br>${escapeHtml(turn.clue?.content || round.seed)}`}</div>
+    ${turn.kind === 'image' ? `<label class="field-label" for="photo">Toma una foto o elige una imagen</label><input class="input" id="photo" type="file" accept="image/*" capture="environment"><p class="note">Fotografía solo la hoja. Evita que aparezcan caras, nombres, uniformes o datos personales.</p><img id="photo-preview" class="hidden" alt="Vista previa del dibujo" style="display:block;max-width:100%;max-height:300px;margin:14px auto;border-radius:12px"><button class="btn full" id="submit" disabled>Preparar foto…</button><div class="status" id="upload-status"></div>` : `<label class="field-label" for="guess">Tu interpretación (máximo 140 caracteres)</label><textarea id="guess" class="input" maxlength="140" rows="3" placeholder="Escribe una frase breve…"></textarea><button class="btn full" id="submit">Pasar frase</button>`}<p class="footer">No escribas nombres ni experiencias personales.</p></section>`;
   const submit = (kind, content) => send('submit', { content, kind, team: turn.team });
   if (turn.kind === 'image') {
-    const canvas = document.querySelector('#canvas'); const ctx = canvas.getContext('2d');
-    ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.strokeStyle = '#222';
-    let drawing = false;
-    const point = (event) => { const rect = canvas.getBoundingClientRect(); return { x: (event.clientX - rect.left) * canvas.width / rect.width, y: (event.clientY - rect.top) * canvas.height / rect.height }; };
-    canvas.onpointerdown = (event) => { drawing = true; canvas.setPointerCapture(event.pointerId); const p = point(event); ctx.beginPath(); ctx.moveTo(p.x, p.y); };
-    canvas.onpointermove = (event) => { if (drawing) { const p = point(event); ctx.lineTo(p.x, p.y); ctx.stroke(); } };
-    canvas.onpointerup = () => { drawing = false; };
-    document.querySelector('#clear').onclick = () => { ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height); };
-    document.querySelector('#submit').onclick = () => submit('image', canvas.toDataURL('image/jpeg', 0.5));
+    const photoInput = document.querySelector('#photo');
+    const preview = document.querySelector('#photo-preview');
+    const submitButton = document.querySelector('#submit');
+    let compressedPhoto = '';
+    photoInput.onchange = async () => {
+      const file = photoInput.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) { setMessage('Selecciona una foto o imagen válida.', '#upload-status'); return; }
+      submitButton.disabled = true; submitButton.textContent = 'Comprimiendo foto…';
+      setMessage('Reduciendo el tamaño para enviarla rápidamente.', '#upload-status');
+      try {
+        compressedPhoto = await compressPhoto(file);
+        preview.src = compressedPhoto; preview.classList.remove('hidden');
+        submitButton.disabled = false; submitButton.textContent = 'Pasar foto al siguiente jugador';
+        setMessage(`Foto lista (${Math.max(1, Math.round(compressedPhoto.length / 1024))} KB aprox.).`, '#upload-status');
+      } catch {
+        compressedPhoto = ''; submitButton.disabled = true; submitButton.textContent = 'Elige una foto';
+        setMessage('No se pudo preparar esa imagen. Prueba con otra foto.', '#upload-status');
+      }
+    };
+    submitButton.onclick = () => { if (compressedPhoto) { submitButton.disabled = true; submit('image', compressedPhoto); } };
   } else {
     document.querySelector('#submit').onclick = () => { const text = document.querySelector('#guess').value.trim(); if (text) submit('text', text); };
   }
+}
+async function compressPhoto(file) {
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); }
+  catch {
+    bitmap = await new Promise((resolve, reject) => {
+      const image = new Image(); const objectUrl = URL.createObjectURL(file);
+      image.onload = () => { URL.revokeObjectURL(objectUrl); resolve(image); };
+      image.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Imagen inválida')); };
+      image.src = objectUrl;
+    });
+  }
+  const maxSide = 1280;
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  if (bitmap.close) bitmap.close();
+  let result = canvas.toDataURL('image/jpeg', 0.72);
+  if (result.length > 1_400_000) result = canvas.toDataURL('image/jpeg', 0.48);
+  if (result.length > 1_400_000) throw new Error('Imagen demasiado grande');
+  return result;
 }
 function renderReveal() {
   const entries = state.chains || [];
