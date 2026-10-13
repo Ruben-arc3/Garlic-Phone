@@ -225,8 +225,17 @@ export class Room {
     game.drawerTeam = drawerTeam;
     game.drawerId = players[game.turnIndex % players.length]?.id;
     game.word = CAMPAIGN_WORDS[(game.turnIndex * 7 + this.state.roundIndex) % CAMPAIGN_WORDS.length];
-    game.deadlineAt = Date.now() + this.state.turnSeconds * 1000;
+    const now = Date.now();
+    game.deadlineAt = now + this.state.turnSeconds * 1000;
+    game.hintLevel = 0;
+    game.nextHintAt = now + Math.max(1000, Math.floor(this.state.turnSeconds * 1000 / 6));
     game.backgroundKey = null; game.strokes = []; game.guessedTeams = []; game.guessCount = 0; game.result = null;
+  }
+  pictionaryHint(word, level) {
+    const letters = [...word].map((char, index) => /[\p{L}\p{N}]/u.test(char) ? index : -1).filter((index) => index >= 0);
+    const revealCount = Math.min(Math.max(0, letters.length - 1), Math.floor(letters.length * level / 6));
+    const revealed = new Set(letters.slice(0, revealCount));
+    return [...word].map((char, index) => /[\p{L}\p{N}]/u.test(char) ? (revealed.has(index) ? char.toLocaleUpperCase('es') : '＿') : char).join(' ');
   }
   async acceptPictionaryBackground(playerId, content) {
     const game = this.state.pictionary;
@@ -309,7 +318,9 @@ export class Room {
   }
   async syncAlarm() {
     if (this.state.phase === 'pictionary' && this.state.pictionary?.deadlineAt) {
-      await this.ctx.storage.setAlarm(this.state.pictionary.deadlineAt); return;
+      const game = this.state.pictionary;
+      const nextAlarm = game.hintLevel < 6 && game.nextHintAt ? Math.min(game.deadlineAt, game.nextHintAt) : game.deadlineAt;
+      await this.ctx.storage.setAlarm(nextAlarm); return;
     }
     if (this.state.phase !== 'relay') { await this.ctx.storage.deleteAlarm(); return; }
     if (this.state.mode === 'memory' && this.state.memory) {
@@ -362,8 +373,16 @@ export class Room {
   }
   async alarm() {
     await this.ready;
-    if (this.state.phase === 'pictionary' && this.state.pictionary?.deadlineAt <= Date.now()) {
-      this.finishPictionaryTurn('timeout'); await this.syncAlarm(); await this.save(); await this.broadcast(); return;
+    if (this.state.phase === 'pictionary' && this.state.pictionary) {
+      const game = this.state.pictionary; const now = Date.now();
+      if (game.deadlineAt <= now) {
+        this.finishPictionaryTurn('timeout'); await this.syncAlarm(); await this.save(); await this.broadcast(); return;
+      }
+      if (game.hintLevel < 6 && game.nextHintAt && game.nextHintAt <= now) {
+        game.hintLevel++;
+        game.nextHintAt = game.hintLevel < 6 ? Math.min(game.deadlineAt, now + Math.max(1000, Math.floor(this.state.turnSeconds * 1000 / 6))) : null;
+        await this.syncAlarm(); await this.save(); await this.broadcast(); return;
+      }
     }
     if (this.state.phase === 'relay') await this.advanceExpiredTurns();
   }
@@ -390,7 +409,7 @@ export class Room {
       const playerIndex = mine ? teamPlayers.findIndex((player) => player.id === mine.id) : -1;
       let chains = this.state.chains.map((chain) => ({ step: chain.step, deadlineAt: chain.deadlineAt || null, previewUntil: chain.previewUntil || null, entries: [] }));
       let memoryClue = null;
-      let pictionaryState = null; let pictionaryWord = null; let pictionaryBoard = null;
+      let pictionaryState = null; let pictionaryWord = null; let pictionaryHint = null; let pictionaryBoard = null;
       const memory = this.state.memory;
       const pictionary = this.state.pictionary;
       if (pictionary && ['pictionary', 'pictionaryReveal'].includes(this.state.phase)) {
@@ -399,6 +418,7 @@ export class Room {
           ? { teams: pictionary.teams, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: pictionary.result }
           : { teams: pictionary.teams, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: null };
         if (isReveal || (meta?.role === 'player' && meta.playerId === pictionary.drawerId)) pictionaryWord = pictionary.word;
+        if (!isReveal && (meta?.role === 'host' || (mine && mine.team !== pictionary.drawerTeam))) pictionaryHint = this.pictionaryHint(pictionary.word, pictionary.hintLevel || 0);
         pictionaryBoard = {
           background: pictionary.backgroundKey ? await this.ctx.storage.get(pictionary.backgroundKey) || '' : '',
           strokes: pictionary.strokes,
@@ -435,7 +455,7 @@ export class Room {
           chains, teamCount: this.state.teamCount, stepsCount: this.state.stepsCount, turnSeconds: this.state.turnSeconds, mode: this.state.mode,
           memory: this.state.mode === 'memory' && memory ? { teams: memory.teams, stage: memory.stage, doneTeams: memory.doneTeams, deadlineAt: memory.deadlineAt, previewUntil: memory.previewUntil } : null,
           memoryClue,
-          pictionary: pictionaryState, pictionaryWord, pictionaryBoard,
+          pictionary: pictionaryState, pictionaryWord, pictionaryHint, pictionaryBoard,
           mine: mine ? { id: mine.id, team: mine.team, index: playerIndex } : null,
         },
       };

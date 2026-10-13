@@ -42,6 +42,7 @@ function connect(code, asHost, token = '') {
       if (previousPhase === 'pictionary' && state.phase === 'pictionary' && document.querySelector('#drawing-board')) {
         drawPictionaryBoard(state.pictionaryBoard);
         const count = document.querySelector('#guess-count'); if (count && state.pictionary) count.textContent = `${state.pictionary.guessCount} intentos`;
+        const hint = document.querySelector('#pictionary-hint'); if (hint) hint.textContent = state.pictionaryHint ? `Pista: ${state.pictionaryHint}` : '';
         return;
       }
       render();
@@ -267,12 +268,12 @@ function renderPictionary() {
   if (role === 'player' && isDrawer) {
     controls = `<section class="card" style="margin-top:16px"><div class="eyebrow">Tu palabra</div><h1 class="prompt">${escapeHtml(state.pictionaryWord)}</h1><p>Dibújala sin escribir letras ni la palabra. Puedes subir una imagen como fondo y dibujar encima.</p><div class="drawing-tools"><label class="field-label" for="drawing-photo">Imagen de fondo (opcional)</label><input class="input" id="drawing-photo" type="file" accept="image/*" capture="environment"><p class="note">Usa una imagen sin caras, nombres ni datos personales.</p><div class="tool-row"><label>Color <input id="brush-color" type="color" value="#20233a"></label><label>Grosor <input id="brush-size" type="range" min="2" max="18" value="7"></label><button class="btn secondary" id="clear-drawing">Borrar trazos</button></div><div class="row"><button class="btn full" id="finish-drawing">Terminar turno</button></div><div class="status" id="drawing-status"></div></div></section>`;
   } else if (role === 'player' && !isArtistTeam) {
-    controls = `<section class="card" style="margin-top:16px"><div class="eyebrow">Adivina en equipo</div><p>Escribe qué crees que está dibujando el otro equipo.</p><div class="row"><input id="guess-input" class="input" maxlength="50" placeholder="Tu respuesta"><button class="btn" id="send-guess">Enviar</button></div><div class="status" id="guess-status"></div></section>`;
+    controls = `<section class="card" style="margin-top:16px"><div class="eyebrow">Adivina en equipo</div><p>Escribe la palabra que representa el dibujo. Si cuesta adivinarla, se irán revelando letras como pista.</p><div class="row"><input id="guess-input" class="input" maxlength="50" placeholder="Escribe tu respuesta"><button class="btn" id="send-guess">Enviar</button></div><div class="status" id="guess-status"></div></section>`;
   } else if (role === 'player') {
     controls = `<section class="card center" style="margin-top:16px"><div class="status">${escapeHtml(artist?.name || 'Tu equipo')} está dibujando. Ayúdale con ideas, pero no envíes respuestas.</div></section>`;
   }
   const scoreboard = `<div class="team-list" style="margin-top:16px">${game.teams.map((team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div>`;
-  app.innerHTML = `${header}<section class="hero"><div class="eyebrow">Dibuja una palabra de cuidado y prevención</div><h1>${role === 'host' ? `Equipo ${game.drawerTeam + 1} está dibujando` : isDrawer ? 'Dibuja para que los demás adivinen' : isArtistTeam ? 'Apoya a quien dibuja' : 'Mira el tablero y adivina'}</h1><p>${role === 'host' ? 'El proyector muestra el tablero en vivo; la palabra se revela al terminar.' : `Dibuja: ${escapeHtml(artist?.name || 'participante')}.`}</p>${timer}<div class="status" id="guess-count">${game.guessCount} intentos</div></section><section class="card">${board}</section>${controls}${role === 'host' ? scoreboard : ''}`;
+  app.innerHTML = `${header}<section class="hero"><div class="eyebrow">Dibuja una palabra de cuidado y prevención</div><h1>${role === 'host' ? `Equipo ${game.drawerTeam + 1} está dibujando` : isDrawer ? 'Dibuja para que los demás adivinen' : isArtistTeam ? 'Apoya a quien dibuja' : 'Mira el tablero y adivina'}</h1><p>${role === 'host' ? 'El proyector muestra el tablero en vivo; la palabra se revela al terminar.' : `Dibuja: ${escapeHtml(artist?.name || 'participante')}.`}</p>${timer}<div class="pictionary-hint" id="pictionary-hint" aria-live="polite">${state.pictionaryHint ? `Pista: ${escapeHtml(state.pictionaryHint)}` : ''}</div><div class="status" id="guess-count">${game.guessCount} intentos</div></section><section class="card">${board}</section>${controls}${role === 'host' ? scoreboard : ''}`;
   drawPictionaryBoard(state.pictionaryBoard);
   if (isDrawer) bindPictionaryDrawing();
   if (role === 'player' && !isArtistTeam) {
