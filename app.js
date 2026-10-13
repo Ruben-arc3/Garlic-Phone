@@ -7,10 +7,36 @@ const rounds = [
   { title: 'Apoyo entre compañeros', seed: 'Escucha sin juzgar y acompaña a tu amigo a buscar ayuda de una persona adulta segura.' },
   { title: 'Cuidado en internet', seed: 'No compartas una imagen por presión. Guarda evidencia si es seguro y pide apoyo.' },
 ];
-let socket = null, state = null, room = '', role = '', timerInterval = null, boardRenderToken = 0, pictionaryHistory = [];
+let socket = null, state = null, room = '', role = '', timerInterval = null, boardRenderToken = 0, pictionaryHistory = [], fullscreenListenerInstalled = false;
 const playerId = localStorage.getItem('voces-player') || crypto.randomUUID();
 localStorage.setItem('voces-player', playerId);
 const escapeHtml = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+
+function bindFullscreenButton() {
+  const button = document.querySelector('#fullscreen-toggle');
+  if (!button) return;
+  const updateLabel = () => {
+    const active = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+    button.textContent = active ? 'Salir de pantalla completa' : 'Pantalla completa';
+  };
+  button.onclick = async () => {
+    try {
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else document.webkitExitFullscreen?.();
+      } else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+      else if (document.documentElement.webkitRequestFullscreen) document.documentElement.webkitRequestFullscreen();
+      else { setMessage('Este navegador no ofrece pantalla completa. En computador, prueba F11.'); return; }
+      updateLabel();
+    } catch { setMessage('No se pudo activar pantalla completa. En computador, prueba F11.'); }
+  };
+  if (!fullscreenListenerInstalled) {
+    document.addEventListener('fullscreenchange', updateLabel);
+    document.addEventListener('webkitfullscreenchange', updateLabel);
+    fullscreenListenerInstalled = true;
+  }
+  updateLabel();
+}
 
 function send(type, data = {}) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, ...data, playerId }));
@@ -279,7 +305,7 @@ function renderPictionary() {
   const isArtistTeam = role === 'player' && game.drawerTeam === state.mine?.team;
   const artist = state.players.find((player) => player.id === game.drawerId);
   const cycle = Math.floor(game.turnIndex / game.teams.length) + 1;
-  const header = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Pinturillo · vuelta ${cycle} · dibuja Equipo ${game.drawerTeam + 1}</div></header>`;
+  const header = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="pictionary-top-actions"><div class="tag">Pinturillo · vuelta ${cycle} · dibuja Equipo ${game.drawerTeam + 1}</div><button type="button" class="btn secondary fullscreen-toggle" id="fullscreen-toggle">Pantalla completa</button></div></header>`;
   const board = `<canvas id="drawing-board" width="900" height="560" aria-label="Tablero de dibujo" class="drawing-board"></canvas>`;
   const timer = `<div class="timer live-timer" data-deadline="${game.deadlineAt}"></div>`;
   const scoreboard = `<aside class="pictionary-score-panel"><div class="pictionary-panel-title">Equipos <span>puntos</span></div>${game.teams.map((team) => `<div class="pictionary-score-row"><span><b>${team + 1}</b> Equipo ${team + 1}</span><strong>${state.scores?.[team] || 0}</strong></div>`).join('')}</aside>`;
@@ -291,6 +317,7 @@ function renderPictionary() {
   else if (isArtistTeam) chatControls = `<div class="chat-help">Tu equipo dibuja este turno; los demás equipos están adivinando.</div>`;
   const chat = `<aside class="pictionary-chat-panel"><div class="pictionary-panel-title">Intentos y puntos <span id="guess-count">${game.guessCount}</span></div><div class="pictionary-chat-list" id="pictionary-chat-list">${(game.chat || []).map(pictionaryChatEntryHtml).join('')}</div>${chatControls}</aside>`;
   app.innerHTML = `${header}<section class="pictionary-hero"><div><div class="eyebrow">Pinturillo de prevención</div><h1>${role === 'host' ? `Dibuja el Equipo ${game.drawerTeam + 1}` : isDrawer ? 'Tu turno: dibuja' : isArtistTeam ? 'Tu equipo dibuja' : 'Mira el dibujo y adivina'}</h1></div><div class="pictionary-round-info">${timer}<div class="pictionary-hint ${state.pictionaryHint ? '' : 'hidden'}" id="pictionary-hint" aria-live="polite">${state.pictionaryHint ? `Pista: ${escapeHtml(state.pictionaryHint)}` : ''}</div></div></section><div class="pictionary-layout">${scoreboard}<section class="pictionary-board-panel">${board}${drawingTools}</section>${chat}</div>`;
+  bindFullscreenButton();
   drawPictionaryBoard(state.pictionaryBoard);
   if (isDrawer) bindPictionaryDrawing();
   if (role === 'player' && !isArtistTeam) {
@@ -386,7 +413,8 @@ function renderPictionaryReveal() {
   const scoreRows = `<aside class="pictionary-score-panel"><div class="pictionary-panel-title">Equipos <span>puntos</span></div>${game.teams.map((team) => `<div class="pictionary-score-row"><span><b>${team + 1}</b> Equipo ${team + 1}</span><strong>${state.scores?.[team] || 0}</strong></div>`).join('')}</aside>`;
   const chat = `<aside class="pictionary-chat-panel"><div class="pictionary-panel-title">Intentos y puntos <span>${game.guessCount}</span></div><div class="pictionary-chat-list" id="pictionary-chat-list">${(game.chat || []).map(pictionaryChatEntryHtml).join('')}</div></aside>`;
   const gallery = pictionaryHistory.length ? `<section class="cascade-section"><div class="cascade-heading">Dibujos anteriores<span>${pictionaryHistory.length} turnos</span></div><div class="cascade-gallery">${previousBoards}</div></section>` : '';
-  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Vuelta ${cycle} · turno terminado</div></header><section class="pictionary-hero"><div><div class="eyebrow">Dibujo de campaña</div><h1>${won ? `¡Equipo ${result.winnerTeam + 1} adivinó!` : 'Turno completado'}</h1><p>${won ? `Equipo ${result.winnerTeam + 1} suma 2 puntos y el Equipo ${result.drawerTeam + 1}, que dibujó, suma 1.` : `Dibujó el Equipo ${result.drawerTeam + 1}. ${result.reason === 'timeout' ? 'Se acabó el tiempo.' : 'No hubo aciertos.'}`}</p></div></section><div class="pictionary-layout">${scoreRows}<section class="pictionary-board-panel">${board}</section>${chat}</div>${gallery}${role === 'host' ? '<div class="center pictionary-actions"><button class="btn" id="pictionary-next">Siguiente equipo</button><button class="btn secondary" id="pictionary-end">Terminar partida</button></div>' : '<p class="footer">El facilitador dará paso al siguiente equipo.</p>'}`;
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="pictionary-top-actions"><div class="tag">Vuelta ${cycle} · turno terminado</div><button type="button" class="btn secondary fullscreen-toggle" id="fullscreen-toggle">Pantalla completa</button></div></header><section class="pictionary-hero"><div><div class="eyebrow">Dibujo de campaña</div><h1>${won ? `¡Equipo ${result.winnerTeam + 1} adivinó!` : 'Turno completado'}</h1><p>${won ? `Equipo ${result.winnerTeam + 1} suma 2 puntos y el Equipo ${result.drawerTeam + 1}, que dibujó, suma 1.` : `Dibujó el Equipo ${result.drawerTeam + 1}. ${result.reason === 'timeout' ? 'Se acabó el tiempo.' : 'No hubo aciertos.'}`}</p></div></section><div class="pictionary-layout">${scoreRows}<section class="pictionary-board-panel">${board}</section>${chat}</div>${gallery}${role === 'host' ? '<div class="center pictionary-actions"><button class="btn" id="pictionary-next">Siguiente equipo</button><button class="btn secondary" id="pictionary-end">Terminar partida</button></div>' : '<p class="footer">El facilitador dará paso al siguiente equipo.</p>'}`;
+  bindFullscreenButton();
   drawPictionaryBoard(state.pictionaryBoard);
   const chatList = document.querySelector('#pictionary-chat-list'); if (chatList) chatList.scrollTop = chatList.scrollHeight;
   document.querySelector('#pictionary-next')?.addEventListener('click', () => send('pictionaryNext'));
