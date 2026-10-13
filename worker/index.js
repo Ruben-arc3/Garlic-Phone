@@ -156,10 +156,19 @@ export class Room {
     } else if (message.type === 'pictionaryNext' && isHost && this.state.phase === 'pictionaryReveal') {
       await this.clearPictionaryBackground();
       const game = this.state.pictionary; game.turnIndex++;
-      if (game.turnIndex >= game.teams.length * (this.state.pictionaryRounds || 1)) this.state.phase = 'end';
+      if (game.turnIndex >= game.teams.length * (game.roundLimit || this.state.pictionaryRounds || 1)) this.state.phase = 'end';
       else { this.state.phase = 'pictionary'; this.beginPictionaryTurn(); }
     } else if (message.type === 'pictionaryEnd' && isHost && this.state.phase === 'pictionaryReveal') {
       this.state.phase = 'end';
+    } else if (message.type === 'pictionaryTieBreak' && isHost && this.state.phase === 'end' && this.state.mode === 'pictionary') {
+      const teams = this.state.pictionary?.teams || [];
+      const highestScore = Math.max(...teams.map((team) => this.state.scores[team] || 0));
+      const tiedTeams = teams.filter((team) => (this.state.scores[team] || 0) === highestScore);
+      if (tiedTeams.length > 1) {
+        await this.clearPictionaryBackground();
+        this.state.phase = 'pictionary';
+        this.startPictionary(tiedTeams);
+      }
     } else if (message.type === 'next' && isHost && this.state.phase === 'reveal') {
       await this.clearPhotos(); this.state.roundIndex++;
       if (this.state.roundIndex >= SEEDS.length) this.state.phase = 'end';
@@ -223,9 +232,10 @@ export class Room {
     });
   }
   chainLength() { return this.state.mode === 'memory' ? 1 : this.state.stepsCount; }
-  startPictionary() {
-    const teams = [...new Set(this.state.players.map((player) => player.team))].sort((a, b) => a - b);
-    this.state.pictionary = { teams, turnIndex: 0, drawerTeam: null, drawerId: null, word: '', wordDeck: [], deadlineAt: null, backgroundKey: null, strokes: [], guessedTeams: [], guessCount: 0, result: null, chat: [] };
+  startPictionary(eligibleTeams = null) {
+    const activeTeams = eligibleTeams || this.state.players.map((player) => player.team);
+    const teams = [...new Set(activeTeams)].sort((a, b) => a - b);
+    this.state.pictionary = { teams, tieBreak: Boolean(eligibleTeams), roundLimit: eligibleTeams ? 1 : (this.state.pictionaryRounds || 1), turnIndex: 0, drawerTeam: null, drawerId: null, word: '', wordDeck: [], deadlineAt: null, backgroundKey: null, strokes: [], guessedTeams: [], guessCount: 0, result: null, chat: [] };
     this.beginPictionaryTurn();
   }
   shuffleCampaignWords() {
@@ -237,6 +247,15 @@ export class Room {
     }
     return words;
   }
+  shuffleHintPositions(positions) {
+    const shuffled = [...positions];
+    for (let index = shuffled.length - 1; index > 0; index--) {
+      const random = new Uint32Array(1); crypto.getRandomValues(random);
+      const swapIndex = random[0] % (index + 1);
+      [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+    }
+    return shuffled;
+  }
   beginPictionaryTurn() {
     const game = this.state.pictionary;
     const drawerTeam = game.teams[game.turnIndex % game.teams.length];
@@ -245,6 +264,7 @@ export class Room {
     game.drawerId = players[game.turnIndex % players.length]?.id;
     if (!game.wordDeck?.length) game.wordDeck = this.shuffleCampaignWords();
     game.word = game.wordDeck.pop();
+    game.hintOrder = this.shuffleHintPositions([...game.word].map((char, index) => /[\p{L}\p{N}]/u.test(char) ? index : -1).filter((index) => index >= 0));
     const now = Date.now();
     game.deadlineAt = now + this.state.turnSeconds * 1000;
     game.hintLevel = 0;
@@ -256,10 +276,10 @@ export class Room {
     game.hintStartedAt = Date.now();
     game.nextHintAt = game.hintStartedAt + Math.max(1000, Math.floor(this.state.turnSeconds * 1000 / 6));
   }
-  pictionaryHint(word, level) {
+  pictionaryHint(word, level, hintOrder) {
     const letters = [...word].map((char, index) => /[\p{L}\p{N}]/u.test(char) ? index : -1).filter((index) => index >= 0);
     const revealCount = Math.min(Math.max(0, letters.length - 1), Math.floor(letters.length * level / 6));
-    const revealed = new Set(letters.slice(0, revealCount));
+    const revealed = new Set((hintOrder?.length ? hintOrder : letters).slice(0, revealCount));
     return [...word].map((char, index) => /[\p{L}\p{N}]/u.test(char) ? (revealed.has(index) ? char.toLocaleUpperCase('es') : '＿') : char).join(' ');
   }
   async acceptPictionaryBackground(playerId, content) {
@@ -288,7 +308,7 @@ export class Room {
   acceptPictionaryGuess(playerId, guess) {
     const game = this.state.pictionary;
     const player = this.state.players.find((item) => item.id === playerId);
-    if (!game || !player || player.team === game.drawerTeam || game.deadlineAt <= Date.now() || (!game.backgroundKey && !game.strokes.length)) return null;
+    if (!game || !player || !game.teams.includes(player.team) || player.team === game.drawerTeam || game.deadlineAt <= Date.now() || (!game.backgroundKey && !game.strokes.length)) return null;
     game.chat ||= [];
     const normalize = (value) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const cleanGuess = String(guess || '').trim().slice(0, 50);
@@ -457,11 +477,12 @@ export class Room {
         const isReveal = this.state.phase === 'pictionaryReveal';
         const publicResult = pictionary.result ? { drawerTeam: pictionary.result.drawerTeam, winnerTeam: pictionary.result.winnerTeam, reason: pictionary.result.reason } : null;
         pictionaryState = isReveal
-          ? { teams: pictionary.teams, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: publicResult, chat: pictionary.chat || [] }
-          : { teams: pictionary.teams, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: null, chat: pictionary.chat || [] };
+          ? { teams: pictionary.teams, tieBreak: Boolean(pictionary.tieBreak), roundLimit: pictionary.roundLimit, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: publicResult, chat: pictionary.chat || [] }
+          : { teams: pictionary.teams, tieBreak: Boolean(pictionary.tieBreak), roundLimit: pictionary.roundLimit, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: null, chat: pictionary.chat || [] };
         if (!isReveal && meta?.role === 'player' && meta.playerId === pictionary.drawerId) pictionaryWord = pictionary.word;
         const hasDrawing = Boolean(pictionary.backgroundKey || pictionary.strokes.length);
-        if (!isReveal && hasDrawing && (meta?.role === 'host' || (mine && mine.team !== pictionary.drawerTeam))) pictionaryHint = this.pictionaryHint(pictionary.word, pictionary.hintLevel || 0);
+        if (!pictionary.hintOrder) pictionary.hintOrder = this.shuffleHintPositions([...pictionary.word].map((char, index) => /[\p{L}\p{N}]/u.test(char) ? index : -1).filter((index) => index >= 0));
+        if (!isReveal && hasDrawing && (meta?.role === 'host' || (mine && mine.team !== pictionary.drawerTeam))) pictionaryHint = this.pictionaryHint(pictionary.word, pictionary.hintLevel || 0, pictionary.hintOrder);
         pictionaryBoard = {
           background: pictionary.backgroundKey ? await this.ctx.storage.get(pictionary.backgroundKey) || '' : '',
           strokes: pictionary.strokes,
