@@ -1,4 +1,8 @@
 export async function onRequestPost({ request, env }) {
+  let settings = {};
+  try { settings = await request.json(); } catch { /* Defaults below are safe. */ }
+  const teamCount = Math.min(8, Math.max(2, Number(settings.teamCount) || 2));
+  const stepsCount = Math.min(10, Math.max(4, Number(settings.stepsCount) || 6));
   let code;
   let id;
   let stub;
@@ -11,7 +15,7 @@ export async function onRequestPost({ request, env }) {
     const response = await stub.fetch('https://room/init', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code, token, createOnly: true }),
+      body: JSON.stringify({ code, token, teamCount, stepsCount, createOnly: true }),
     });
     const result = await response.json();
     if (result.created) return Response.json({ code, token });

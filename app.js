@@ -38,20 +38,28 @@ function home() {
   socket?.close(); app.dataset.screen = 'home'; app.className = 'shell';
   app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Juego educativo en vivo</div></header>
     <section class="hero"><div class="eyebrow">Aprender jugando · cuidarnos en comunidad</div><h1>Las buenas respuestas<br>se construyen en equipo.</h1><p>Un teléfono descompuesto de dibujos e interpretaciones para conversar sobre límites y apoyo.</p></section>
-    <section class="home-grid"><article class="card"><div class="eyebrow">Facilitador</div><h2>Crear una sala</h2><p>Proyecta el código y juega con el grupo.</p><button class="btn full" id="create">Crear sala en vivo</button><div class="status" id="host-status"></div></article>
-    <article class="card"><div class="eyebrow">Estudiantes</div><h2>Unirse al juego</h2><p>Entra desde el celular con el código de la pantalla.</p><label class="field-label" for="code">Código</label><input class="input" id="code" maxlength="5" placeholder="ABCDE" autocomplete="one-time-code"><label class="field-label" for="nickname">Apodo (sin apellidos)</label><input class="input" id="nickname" maxlength="18" placeholder="Apodo"><button class="btn secondary full" id="join">Unirme a la sala</button><div class="status" id="join-status"></div></article></section>
+    <section class="home-grid"><article class="card" id="host-card"><div class="eyebrow">Facilitador</div><h2>Crear una sala</h2><p>Proyecta el código y juega con el grupo.</p><label class="field-label" for="team-count">Cantidad de equipos</label><select class="input" id="team-count">${[2,3,4,5,6,7,8].map(n=>`<option value="${n}" ${n===2?'selected':''}>${n} equipos</option>`).join('')}</select><label class="field-label" for="step-count">Aportes por equipo</label><select class="input" id="step-count">${[4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${n===6?'selected':''}>${n} pasos</option>`).join('')}</select><button class="btn full" id="create">Crear sala en vivo</button><div class="status" id="host-status"></div></article>
+    <article class="card"><div class="eyebrow">Estudiantes</div><h2 id="join-title">Unirse al juego</h2><p id="join-description">Entra desde el celular con el código de la pantalla.</p><label class="field-label" for="code">Código</label><input class="input" id="code" maxlength="5" placeholder="ABCDE" autocomplete="one-time-code"><label class="field-label" for="nickname">Elige tu apodo</label><input class="input" id="nickname" maxlength="18" placeholder="Apodo (sin apellidos)" autocomplete="nickname"><button class="btn secondary full" id="join">Entrar a la sala</button><div class="status" id="join-status"></div></article></section>
     <p class="footer">No compartas experiencias personales en el juego. Si necesitas hablar, acércate en privado al adulto designado por tu institución.</p>`;
   document.querySelector('#create').onclick = createRoom;
   document.querySelector('#join').onclick = joinRoom;
   const input = document.querySelector('#code');
   input.oninput = () => { input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); };
   const invitedCode = new URLSearchParams(location.search).get('code');
-  if (invitedCode) input.value = invitedCode.toUpperCase();
+  if (invitedCode) {
+    input.value = invitedCode.toUpperCase();
+    document.querySelector('#host-card').classList.add('hidden');
+    document.querySelector('#join-title').textContent = 'Elige tu apodo';
+    document.querySelector('#join-description').textContent = 'Ya tienes el código de sala. Escribe un apodo para entrar.';
+    document.querySelector('label[for="code"]').classList.add('hidden');
+    input.classList.add('hidden');
+    document.querySelector('#nickname').focus();
+  }
 }
 async function createRoom() {
   const button = document.querySelector('#create'); button.disabled = true;
   try {
-    const response = await fetch(`${API}/create`, { method: 'POST' });
+    const response = await fetch(`${API}/create`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ teamCount: Number(document.querySelector('#team-count').value), stepsCount: Number(document.querySelector('#step-count').value) }) });
     if (!response.ok) throw new Error(`Error al crear sala (${response.status}).`);
     const result = await response.json(); connect(result.code, true, result.token);
   } catch (error) { setMessage(error.message, '#host-status'); button.disabled = false; }
@@ -66,7 +74,7 @@ function joinRoom() {
 function teamPanel(team) {
   const players = state?.players?.filter((player) => player.team === team) || [];
   return `<div class="team"><h3>Equipo ${team ? 'B' : 'A'}</h3><div class="players">${players.length ? players.map((player) => `<span class="player-pill">${escapeHtml(player.name)}</span>`).join('') : 'Esperando participantes…'}</div>
-    ${role === 'player' && state?.phase === 'lobby' ? `<button class="btn secondary" data-team="${team}" style="margin-top:12px">Elegir equipo ${team ? 'B' : 'A'}</button>` : ''}</div>`;
+    ${role === 'player' && state?.phase === 'lobby' ? `<button class="btn secondary" data-team="${team}" style="margin-top:12px">Elegir equipo ${team + 1}</button>` : ''}</div>`;
 }
 function render() {
   app.dataset.screen = role === 'host' ? 'host' : 'player';
@@ -82,25 +90,27 @@ function bindTeamButtons() {
 }
 function renderTeamSelect() {
   app.className = 'shell';
-  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Sala ${escapeHtml(room)}</div></header><section class="hero"><div class="eyebrow">¡Ya estás dentro!</div><h1>Elige tu equipo</h1><p>Si juegas solo, elige Equipo A. Harás los turnos sucesivos.</p></section><section class="team-list">${teamPanel(0)}${teamPanel(1)}</section><p class="footer">Puedes cambiar de equipo mientras la partida no haya iniciado.</p>`;
+  const teams = Array.from({ length: state.teamCount || 2 }, (_, index) => teamPanel(index)).join('');
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Sala ${escapeHtml(room)}</div></header><section class="hero"><div class="eyebrow">¡Ya estás dentro!</div><h1>Elige tu equipo</h1><p>Si juegas solo, elige Equipo 1. Harás los turnos sucesivos.</p></section><section class="team-list">${teams}</section><p class="footer">Puedes cambiar de equipo mientras la partida no haya iniciado.</p>`;
   bindTeamButtons();
 }
 function renderLobby() {
   const joinUrl = `${location.origin}${location.pathname}?code=${encodeURIComponent(room)}`;
   const qr = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(joinUrl)}`;
   const count = state.players.length;
+  const teams = Array.from({ length: state.teamCount || 2 }, (_, index) => teamPanel(index)).join('');
   app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Vista del facilitador</div></header>
     <div class="room-head"><div><div class="eyebrow">Escanea el QR o escribe el código</div><div class="room-code">${escapeHtml(room)}</div><p style="color:var(--muted)">Abre <b>${escapeHtml(location.origin)}</b> en el celular.</p></div>
     <div class="row"><img alt="QR para entrar a la sala" width="110" height="110" style="background:white;border:8px solid white;border-radius:10px" src="${qr}"><button class="btn secondary" id="project">Vista proyector</button><button class="btn" id="start" ${count ? '' : 'disabled'}>Iniciar teléfono</button></div></div>
     <div class="banner"><b>Acuerdo de cuidado:</b> usamos frases ficticias. No compartimos historias personales ni nombres. Si algo preocupa, hablen en privado con el adulto designado.</div>
-    <div class="room-layout"><section class="card"><div class="kicker">Participantes · ${count}</div><div class="team-list" style="margin-top:15px">${teamPanel(0)}${teamPanel(1)}</div></section><section class="card"><div class="kicker">Teléfono descompuesto</div><h2 style="margin-top:14px">Dibuja · interpreta · pasa</h2><p>Una frase pasa de persona a dibujo y de dibujo a interpretación. Al final se revela cómo cambió.</p><div class="status">${count === 0 ? 'Conéctate con al menos una persona para empezar.' : count === 1 ? 'Puedes iniciar con un jugador; hará la cadena por turnos.' : 'Inicia cuando los equipos estén listos.'}</div></section></div>`;
+    <div class="room-layout"><section class="card"><div class="kicker">Participantes · ${count}</div><div class="team-list" style="margin-top:15px">${teams}</div></section><section class="card"><div class="kicker">Teléfono descompuesto</div><h2 style="margin-top:14px">${state.teamCount} equipos · ${state.stepsCount} pasos</h2><p>Una frase pasa de persona a dibujo y de dibujo a interpretación. Al final se revela cómo cambió.</p><div class="status">${count === 0 ? 'Conéctate con al menos una persona para empezar.' : count === 1 ? 'Puedes iniciar con un jugador; hará la cadena por turnos.' : 'Inicia cuando los equipos estén listos.'}</div></section></div>`;
   document.querySelector('#start').onclick = () => send('start');
   document.querySelector('#project').onclick = () => { const url = new URL(location.href); url.searchParams.set('proyector', '1'); window.open(url, '_blank'); };
 }
 function getMyTurn() {
   const team = state.mine?.team ?? 0;
   const chain = state.chains?.[team];
-  if (!chain || chain.step >= 4) return null;
+  if (!chain || chain.step >= (state.stepsCount || 6)) return null;
   const teamPlayers = state.players.filter((player) => player.team === team);
   const nextIndex = chain.step % (teamPlayers.length || 1);
   if (state.mine?.index !== nextIndex) return null;
@@ -109,13 +119,14 @@ function getMyTurn() {
 function renderRelay() {
   const round = rounds[state.roundIndex];
   if (role === 'host') {
-    app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Ronda ${state.roundIndex + 1} / ${rounds.length}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(round.title)}</div><h1>El mensaje va pasando…</h1><p>Cada estudiante dibuja o interpreta el aporte anterior desde su celular.</p></section><div class="room-layout">${[0,1].map((team) => `<section class="card"><div class="kicker">Equipo ${team ? 'B' : 'A'}</div><div class="room-code" style="font-size:52px">${state.chains?.[team]?.step || 0}<span style="font-size:24px;color:var(--muted)"> / 4 pasos</span></div></section>`).join('')}</div><p class="footer">La frase inicial y los aportes se revelan al completar la cadena.</p>`;
+    const teams = Array.from({ length: state.teamCount || 2 }, (_, team) => `<section class="card"><div class="kicker">Equipo ${team + 1}</div><div class="room-code" style="font-size:52px">${state.chains?.[team]?.step || 0}<span style="font-size:24px;color:var(--muted)"> / ${state.stepsCount} pasos</span></div></section>`).join('');
+    app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Ronda ${state.roundIndex + 1} / ${rounds.length}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(round.title)}</div><h1>El mensaje va pasando…</h1><p>Cada estudiante dibuja o interpreta el aporte anterior desde su celular.</p></section><div class="room-layout">${teams}</div><p class="footer">La frase inicial y los aportes se revelan al completar la cadena.</p>`;
     return;
   }
   const turn = getMyTurn();
   if (!turn) {
     const team = state.mine?.team ?? 0; const step = state.chains?.[team]?.step || 0;
-    app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Equipo ${team ? 'B' : 'A'}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(round.title)}</div><h1>El teléfono está pasando por el equipo.</h1><p>Cuando llegue tu turno, verás el aporte anterior. No lo compartas con el otro equipo.</p></section><section class="card center"><div class="status">Esperando el siguiente turno…</div><div class="score" style="margin-top:16px">${step} / 4</div></section>`;
+    app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Equipo ${team + 1}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(round.title)}</div><h1>El teléfono está pasando por el equipo.</h1><p>Cuando llegue tu turno, verás el aporte anterior. No lo compartas con otros equipos.</p></section><section class="card center"><div class="status">Esperando el siguiente turno…</div><div class="score" style="margin-top:16px">${step} / ${state.stepsCount}</div></section>`;
     return;
   }
   app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Tu turno · Equipo ${turn.team ? 'B' : 'A'}</div></header><section class="card"><div class="eyebrow">${escapeHtml(round.title)} · paso ${turn.step + 1} de 4</div><h1 class="prompt">${turn.kind === 'image' ? 'Dibujen en una hoja y suban una foto' : '¿Qué crees que representa el dibujo?'}</h1><div class="feedback">${turn.clue?.kind === 'image' ? `<img alt="Dibujo anterior" src="${turn.clue.content}" style="display:block;max-width:100%;max-height:260px;margin:auto;border-radius:12px">` : `<b>Mensaje recibido:</b><br>${escapeHtml(turn.clue?.content || round.seed)}`}</div>
@@ -158,29 +169,34 @@ async function compressPhoto(file) {
       image.src = objectUrl;
     });
   }
-  const maxSide = 1280;
-  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  const context = canvas.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const context = canvas.getContext('2d');
+  let result = '';
+  for (const maxSide of [1280, 960, 720, 540]) {
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    result = canvas.toDataURL('image/jpeg', 0.58);
+    if (result.length <= 480000) break;
+  }
   if (bitmap.close) bitmap.close();
-  let result = canvas.toDataURL('image/jpeg', 0.72);
-  if (result.length > 1_400_000) result = canvas.toDataURL('image/jpeg', 0.48);
-  if (result.length > 1_400_000) throw new Error('Imagen demasiado grande');
+  if (result.length > 480000) throw new Error('Imagen demasiado grande');
   return result;
 }
 function renderReveal() {
   const entries = state.chains || [];
   const tile = (entry, index) => `<div class="card" style="min-width:190px;max-width:240px"><div class="kicker">${index === 0 ? 'Frase inicial' : `Paso ${index}`}</div>${entry.kind === 'image' ? `<img alt="Dibujo de la cadena" src="${entry.content}" style="width:100%;border-radius:10px;margin-top:10px">` : `<p style="margin-top:12px;color:white">${escapeHtml(entry.content)}</p>`}</div>`;
+  const teamCount = state.teamCount || 2;
   app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Revelación · ronda ${state.roundIndex + 1}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(rounds[state.roundIndex].title)}</div><h1>¿Cómo cambió el mensaje?</h1><p>Comparen la idea inicial con las interpretaciones. La actividad sirve para conversar, no para evaluar experiencias personales.</p></section>
-    ${[0,1].map((team) => `<section class="card" style="margin-bottom:18px"><div class="kicker" style="margin-bottom:14px">Equipo ${team ? 'B' : 'A'}</div><div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;align-items:stretch">${(entries[team]?.entries || []).map(tile).join('<div style="align-self:center;color:var(--lime);font-size:28px">→</div>')}</div></section>`).join('')}
-    <section class="banner"><b>Conversación final:</b> ¿qué parte de la idea se mantuvo? ¿Qué acción segura recuerdan y a qué adulto podrían acudir? No compartan experiencias personales en público.</section><div class="team-list"><div class="team"><h3>Equipo A</h3><div class="score">${state.scores?.[0] || 0}</div></div><div class="team"><h3>Equipo B</h3><div class="score">${state.scores?.[1] || 0}</div></div></div><div class="center" style="margin-top:22px"><button class="btn" id="next">${state.roundIndex + 1 === rounds.length ? 'Ver cierre' : 'Siguiente cadena'}</button></div>`;
-  document.querySelector('#next').onclick = () => send('next');
+    ${Array.from({ length: teamCount }, (_, team) => `<section class="card" style="margin-bottom:18px"><div class="kicker" style="margin-bottom:14px">Equipo ${team + 1}</div><div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;align-items:stretch">${(entries[team]?.entries || []).map(tile).join('<div style="align-self:center;color:var(--lime);font-size:28px">→</div>')}</div></section>`).join('')}
+    <section class="banner"><b>Conversación final:</b> ¿qué parte de la idea se mantuvo? ¿Qué acción segura recuerdan y a qué adulto podrían acudir? No compartan experiencias personales en público.</section><div class="team-list">${Array.from({ length: teamCount }, (_, team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div>${role==='host'?'<div class="center" style="margin-top:22px"><button class="btn" id="next">Siguiente cadena</button></div>':''}`;
+  document.querySelector('#next')?.addEventListener('click', () => send('next'));
 }
 function renderEnd() {
-  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Cierre</div></header><section class="hero"><div class="eyebrow">Gracias por participar</div><h1>Una comunidad que escucha y protege.</h1><p>Puedes poner límites, pedir ayuda y acompañar a alguien sin juzgar.</p></section><section class="card center"><p>Si necesitas apoyo, acércate en privado al orientador o adulto responsable de protección de tu institución.</p><button class="btn secondary" id="again">Volver a la sala</button></section>`;
-  document.querySelector('#again').onclick = () => send('reset');
+  const teamCount = state.teamCount || 2;
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Cierre</div></header><section class="hero"><div class="eyebrow">Gracias por participar</div><h1>Una comunidad que escucha y protege.</h1><p>Puedes poner límites, pedir ayuda y acompañar a alguien sin juzgar.</p></section><section class="card center"><div class="team-list">${Array.from({ length: teamCount }, (_, team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div><p>Si necesitas apoyo, acércate en privado al orientador o adulto responsable de protección de tu institución.</p>${role==='host'?'<button class="btn" id="again">Reiniciar partida</button>':''}</section>`;
+  document.querySelector('#again')?.addEventListener('click', () => send('reset'));
 }
 home();
