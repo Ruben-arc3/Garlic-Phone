@@ -4,7 +4,7 @@ export async function onRequestPost({ request, env }) {
   const teamCount = Math.min(15, Math.max(2, Number(settings.teamCount) || 2));
   const stepsCount = Math.min(10, Math.max(4, Number(settings.stepsCount) || 6));
   const turnSeconds = Math.min(300, Math.max(15, Number(settings.turnSeconds) || 60));
-  const mode = settings.mode === 'memory' ? 'memory' : 'phrase';
+  const mode = ['memory', 'pictionary'].includes(settings.mode) ? settings.mode : 'phrase';
   let code;
   let id;
   let stub;

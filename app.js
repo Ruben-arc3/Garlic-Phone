@@ -7,7 +7,7 @@ const rounds = [
   { title: 'Apoyo entre compañeros', seed: 'Escucha sin juzgar y acompaña a tu amigo a buscar ayuda de una persona adulta segura.' },
   { title: 'Cuidado en internet', seed: 'No compartas una imagen por presión. Guarda evidencia si es seguro y pide apoyo.' },
 ];
-let socket = null, state = null, room = '', role = '', timerInterval = null;
+let socket = null, state = null, room = '', role = '', timerInterval = null, boardRenderToken = 0;
 const playerId = localStorage.getItem('voces-player') || crypto.randomUUID();
 localStorage.setItem('voces-player', playerId);
 const escapeHtml = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
@@ -28,7 +28,25 @@ function connect(code, asHost, token = '') {
   socket = new WebSocket(url);
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
-    if (message.type === 'state') { state = message.state; render(); }
+    if (message.type === 'state') {
+      const previousPhase = state?.phase;
+      state = message.state;
+      if (previousPhase === 'pictionary' && state.phase === 'pictionary' && document.querySelector('#drawing-board')) {
+        drawPictionaryBoard(state.pictionaryBoard);
+        const count = document.querySelector('#guess-count'); if (count && state.pictionary) count.textContent = `${state.pictionary.guessCount} intentos`;
+        return;
+      }
+      render();
+    }
+    if (message.type === 'pictionaryStroke') {
+      if (state?.pictionaryBoard && message.stroke) state.pictionaryBoard.strokes.push(message.stroke);
+      drawStrokeOnBoard(message.stroke);
+    }
+    if (message.type === 'pictionaryStatus' && state?.pictionary) {
+      state.pictionary.guessCount = message.guessCount;
+      const count = document.querySelector('#guess-count'); if (count) count.textContent = `${message.guessCount} intentos`;
+    }
+    if (message.type === 'pictionaryGuessResult') setMessage(message.correct ? '¡Correcto! Tu equipo sumó puntos.' : 'Todavía no. Prueba otra respuesta.', '#guess-status');
     if (message.type === 'error') setMessage(message.message);
   };
   socket.onerror = () => setMessage('No se pudo conectar. Revisa que el Worker y Pages estén desplegados.');
@@ -38,14 +56,14 @@ function home() {
   socket?.close(); app.dataset.screen = 'home'; app.className = 'shell';
   app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Juego educativo en vivo</div></header>
     <section class="hero"><div class="eyebrow">Aprender jugando · cuidarnos en comunidad</div><h1>Las buenas respuestas<br>se construyen en equipo.</h1><p>Un teléfono descompuesto de dibujos e interpretaciones para conversar sobre límites y apoyo.</p></section>
-    <section class="home-grid"><article class="card" id="host-card"><div class="eyebrow">Facilitador</div><h2>Crear una sala</h2><p>Proyecta el código y juega con el grupo.</p><label class="field-label" for="team-count">Cantidad de equipos</label><select class="input" id="team-count">${Array.from({length:14},(_,i)=>i+2).map(n=>`<option value="${n}" ${n===2?'selected':''}>${n} equipos</option>`).join('')}</select><label class="field-label" for="game-mode">Modo de juego</label><select class="input" id="game-mode"><option value="phrase">Knock-Off · misma frase educativa</option><option value="memory">Knock-Off · memorizar dibujo</option></select><p class="note">En memorizar dibujo, cada equipo empieza con un modelo distinto, lo replica y pasa su copia al siguiente equipo.</p><label class="field-label" for="step-count">Aportes por equipo (modo frase)</label><select class="input" id="step-count">${[4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${n===6?'selected':''}>${n} pasos</option>`).join('')}</select><label class="field-label" for="turn-seconds">Tiempo por turno (segundos)</label><input class="input" id="turn-seconds" type="number" min="15" max="300" step="5" value="60"><p class="note">Entre 15 segundos y 5 minutos; el turno avanza automáticamente.</p><button class="btn full" id="create">Crear sala en vivo</button><div class="status" id="host-status"></div></article>
+    <section class="home-grid"><article class="card" id="host-card"><div class="eyebrow">Facilitador</div><h2>Crear una sala</h2><p>Proyecta el código y juega con el grupo.</p><label class="field-label" for="team-count">Cantidad de equipos</label><select class="input" id="team-count">${Array.from({length:14},(_,i)=>i+2).map(n=>`<option value="${n}" ${n===2?'selected':''}>${n} equipos</option>`).join('')}</select><label class="field-label" for="game-mode">Modo de juego</label><select class="input" id="game-mode"><option value="phrase">Knock-Off · misma frase educativa</option><option value="memory">Knock-Off · memorizar dibujo</option><option value="pictionary">Pinturillo · dibujar y adivinar</option></select><p class="note">En memorizar dibujo, cada equipo empieza con un modelo distinto, lo replica y pasa su copia al siguiente equipo.</p><label class="field-label" for="step-count">Aportes por equipo (modo frase)</label><select class="input" id="step-count">${[4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${n===6?'selected':''}>${n} pasos</option>`).join('')}</select><label class="field-label" for="turn-seconds">Tiempo por turno (segundos)</label><input class="input" id="turn-seconds" type="number" min="15" max="300" step="5" value="60"><p class="note">Entre 15 segundos y 5 minutos; el turno avanza automáticamente.</p><button class="btn full" id="create">Crear sala en vivo</button><div class="status" id="host-status"></div></article>
     <article class="card"><div class="eyebrow">Estudiantes</div><h2 id="join-title">Unirse al juego</h2><p id="join-description">Entra desde el celular con el código de la pantalla.</p><label class="field-label" for="code">Código</label><input class="input" id="code" maxlength="5" placeholder="ABCDE" autocomplete="one-time-code"><label class="field-label" for="nickname">Elige tu apodo</label><input class="input" id="nickname" maxlength="18" placeholder="Apodo (sin apellidos)" autocomplete="nickname"><button class="btn secondary full" id="join">Entrar a la sala</button><div class="status" id="join-status"></div></article></section>
     <p class="footer">No compartas experiencias personales en el juego. Si necesitas hablar, acércate en privado al adulto designado por tu institución.</p>`;
   document.querySelector('#create').onclick = createRoom;
   document.querySelector('#join').onclick = joinRoom;
   const modeSelect = document.querySelector('#game-mode');
   const syncStepSetting = () => {
-    const hidden = modeSelect.value === 'memory';
+    const hidden = modeSelect.value !== 'phrase';
     document.querySelector('label[for="step-count"]').classList.toggle('hidden', hidden);
     document.querySelector('#step-count').classList.toggle('hidden', hidden);
   };
@@ -92,6 +110,8 @@ function render() {
   if (state.phase === 'lobby') return renderLobby();
   if (state.phase === 'relay') return renderRelay();
   if (state.phase === 'reveal') return renderReveal();
+  if (state.phase === 'pictionary') return renderPictionary();
+  if (state.phase === 'pictionaryReveal') return renderPictionaryReveal();
   renderEnd();
 }
 function startCountdowns() {
@@ -130,7 +150,7 @@ function renderLobby() {
     <div class="room-head"><div><div class="eyebrow">Escanea el QR o escribe el código</div><div class="room-code">${escapeHtml(room)}</div><p style="color:var(--muted)">Abre <b>${escapeHtml(location.origin)}</b> en el celular.</p></div>
     <div class="row"><img alt="QR para entrar a la sala" width="110" height="110" style="background:white;border:8px solid white;border-radius:10px" src="${qr}"><button class="btn secondary" id="project">Vista proyector</button><button class="btn" id="start" ${count ? '' : 'disabled'}>Iniciar teléfono</button></div></div>
     <div class="banner"><b>Acuerdo de cuidado:</b> usamos frases ficticias. No compartimos historias personales ni nombres. Si algo preocupa, hablen en privado con el adulto designado.</div>
-    <div class="room-layout"><section class="card"><div class="kicker">Participantes · ${count}</div><div class="team-list" style="margin-top:15px">${teams}</div></section><section class="card"><div class="kicker">Teléfono descompuesto</div><h2 style="margin-top:14px">${state.teamCount} equipos · ${state.mode === 'memory' ? 'Memorizar dibujo' : `${state.stepsCount} pasos`}</h2><p>${state.mode === 'memory' ? 'Cada equipo recibe un dibujo distinto, lo memoriza, lo replica y pasa la copia al siguiente equipo hasta completar la rotación.' : 'Todos los equipos comienzan con la misma frase educativa y la cadena alterna dibujo e interpretación.'} Tiempo por turno: <b>${state.turnSeconds} segundos</b>.</p><div class="status">${count === 0 ? 'Conéctate con al menos una persona para empezar.' : count === 1 ? 'Puedes iniciar con un jugador; hará los turnos sucesivos.' : 'Inicia cuando los equipos estén listos.'}</div></section></div>`;
+    <div class="room-layout"><section class="card"><div class="kicker">Participantes · ${count}</div><div class="team-list" style="margin-top:15px">${teams}</div></section><section class="card"><div class="kicker">${state.mode === 'pictionary' ? 'Dibuja y adivina' : 'Teléfono descompuesto'}</div><h2 style="margin-top:14px">${state.teamCount} equipos · ${state.mode === 'memory' ? 'Memorizar dibujo' : state.mode === 'pictionary' ? 'Pinturillo de prevención' : `${state.stepsCount} pasos`}</h2><p>${state.mode === 'memory' ? 'Cada equipo recibe un dibujo distinto, lo memoriza, lo replica y pasa la copia al siguiente equipo hasta completar la rotación.' : state.mode === 'pictionary' ? 'Cada equipo tendrá un turno para dibujar una palabra privada de la campaña. Los demás equipos intentan adivinarla; el dibujo aparece en vivo en el proyector. Quien dibuja puede subir una foto como fondo y trazar encima.' : 'Todos los equipos comienzan con la misma frase educativa y la cadena alterna dibujo e interpretación.'} Tiempo por turno: <b>${state.turnSeconds} segundos</b>.</p><div class="status">${count === 0 ? 'Conéctate con al menos una persona para empezar.' : count === 1 ? 'Puedes iniciar con un jugador; hará los turnos sucesivos. Para adivinar, se recomienda que haya otro equipo con participantes.' : 'Inicia cuando los equipos estén listos.'}</div></section></div>`;
   document.querySelector('#start').onclick = () => send('start');
   document.querySelector('#project').onclick = () => { const url = new URL(location.href); url.searchParams.set('proyector', '1'); window.open(url, '_blank'); };
 }
@@ -226,6 +246,107 @@ function renderRelay() {
     document.querySelector('#submit').onclick = () => { const text = document.querySelector('#guess').value.trim(); if (text) submit('text', text); };
   }
   startCountdowns();
+}
+function renderPictionary() {
+  const game = state.pictionary;
+  const isDrawer = role === 'player' && game.drawerTeam === state.mine?.team && state.pictionaryWord;
+  const isArtistTeam = role === 'player' && game.drawerTeam === state.mine?.team;
+  const artist = state.players.find((player) => player.id === game.drawerId);
+  const header = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Pinturillo · turno ${game.turnIndex + 1} / ${game.teams.length}</div></header>`;
+  const board = `<canvas id="drawing-board" width="900" height="560" aria-label="Tablero de dibujo" style="display:block;width:100%;max-height:62vh;aspect-ratio:900/560;background:white;border-radius:14px;touch-action:none"></canvas>`;
+  const timer = `<div class="timer live-timer" data-deadline="${game.deadlineAt}"></div>`;
+  let controls = '';
+  if (role === 'player' && isDrawer) {
+    controls = `<section class="card" style="margin-top:16px"><div class="eyebrow">Tu palabra</div><h1 class="prompt">${escapeHtml(state.pictionaryWord)}</h1><p>Dibújala sin escribir letras ni la palabra. Puedes subir una imagen como fondo y dibujar encima.</p><div class="drawing-tools"><label class="field-label" for="drawing-photo">Imagen de fondo (opcional)</label><input class="input" id="drawing-photo" type="file" accept="image/*" capture="environment"><p class="note">Usa una imagen sin caras, nombres ni datos personales.</p><div class="tool-row"><label>Color <input id="brush-color" type="color" value="#20233a"></label><label>Grosor <input id="brush-size" type="range" min="2" max="18" value="7"></label><button class="btn secondary" id="clear-drawing">Borrar trazos</button></div><div class="row"><button class="btn full" id="finish-drawing">Terminar turno</button></div><div class="status" id="drawing-status"></div></div></section>`;
+  } else if (role === 'player' && !isArtistTeam) {
+    controls = `<section class="card" style="margin-top:16px"><div class="eyebrow">Adivina en equipo</div><p>Escribe qué crees que está dibujando el otro equipo.</p><div class="row"><input id="guess-input" class="input" maxlength="50" placeholder="Tu respuesta"><button class="btn" id="send-guess">Enviar</button></div><div class="status" id="guess-status"></div></section>`;
+  } else if (role === 'player') {
+    controls = `<section class="card center" style="margin-top:16px"><div class="status">${escapeHtml(artist?.name || 'Tu equipo')} está dibujando. Ayúdale con ideas, pero no envíes respuestas.</div></section>`;
+  }
+  const scoreboard = `<div class="team-list" style="margin-top:16px">${game.teams.map((team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div>`;
+  app.innerHTML = `${header}<section class="hero"><div class="eyebrow">Dibuja una palabra de cuidado y prevención</div><h1>${role === 'host' ? `Equipo ${game.drawerTeam + 1} está dibujando` : isDrawer ? 'Dibuja para que los demás adivinen' : isArtistTeam ? 'Apoya a quien dibuja' : 'Mira el tablero y adivina'}</h1><p>${role === 'host' ? 'El proyector muestra el tablero en vivo; la palabra se revela al terminar.' : `Dibuja: ${escapeHtml(artist?.name || 'participante')}.`}</p>${timer}<div class="status" id="guess-count">${game.guessCount} intentos</div></section><section class="card">${board}</section>${controls}${role === 'host' ? scoreboard : ''}`;
+  drawPictionaryBoard(state.pictionaryBoard);
+  if (isDrawer) bindPictionaryDrawing();
+  if (role === 'player' && !isArtistTeam) {
+    const input = document.querySelector('#guess-input');
+    const sendGuess = () => {
+      const guess = input.value.trim(); if (!guess) return;
+      send('pictionaryGuess', { guess }); input.value = '';
+    };
+    document.querySelector('#send-guess').onclick = sendGuess;
+    input.onkeydown = (event) => { if (event.key === 'Enter') sendGuess(); };
+  }
+  startCountdowns();
+}
+function bindPictionaryDrawing() {
+  const canvas = document.querySelector('#drawing-board'); const context = canvas.getContext('2d');
+  const colorInput = document.querySelector('#brush-color'); const sizeInput = document.querySelector('#brush-size');
+  let points = []; let active = false; let color = colorInput.value; let width = Number(sizeInput.value) / canvas.width;
+  const pointFrom = (event) => { const rect = canvas.getBoundingClientRect(); return [Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))]; };
+  const redrawSegment = (from, to) => {
+    context.strokeStyle = color; context.lineWidth = width * canvas.width; context.lineCap = 'round'; context.lineJoin = 'round';
+    context.beginPath(); context.moveTo(from[0] * canvas.width, from[1] * canvas.height); context.lineTo(to[0] * canvas.width, to[1] * canvas.height); context.stroke();
+  };
+  canvas.onpointerdown = (event) => { event.preventDefault(); canvas.setPointerCapture(event.pointerId); active = true; points = [pointFrom(event)]; };
+  canvas.onpointermove = (event) => { if (!active) return; event.preventDefault(); const next = pointFrom(event); redrawSegment(points.at(-1), next); points.push(next); };
+  const finishStroke = () => {
+    if (!active) return; active = false;
+    if (points.length === 1) points.push(points[0]);
+    const stride = Math.max(1, Math.ceil(points.length / 80));
+    let compact = points.filter((_, index) => index % stride === 0);
+    if (compact.length > 80) compact = compact.slice(0, 80);
+    if (compact.length === 1) compact.push(compact[0]);
+    send('pictionaryStroke', { stroke: { points: compact, color, width } });
+  };
+  canvas.onpointerup = finishStroke; canvas.onpointercancel = finishStroke;
+  colorInput.oninput = () => { color = colorInput.value; };
+  sizeInput.oninput = () => { width = Number(sizeInput.value) / canvas.width; };
+  document.querySelector('#clear-drawing').onclick = () => send('pictionaryClear');
+  document.querySelector('#finish-drawing').onclick = () => send('pictionaryFinish');
+  document.querySelector('#drawing-photo').onchange = async (event) => {
+    const file = event.target.files?.[0]; if (!file) return;
+    if (!file.type.startsWith('image/')) { setMessage('Selecciona una imagen válida.', '#drawing-status'); return; }
+    setMessage('Preparando imagen de fondo…', '#drawing-status');
+    try { send('pictionaryBackground', { content: await compressPhoto(file) }); setMessage('Imagen de fondo enviada. Ya puedes dibujar encima.', '#drawing-status'); }
+    catch { setMessage('No se pudo preparar esa imagen. Prueba con otra.', '#drawing-status'); }
+  };
+}
+function drawPictionaryBoard(board = {}) {
+  const canvas = document.querySelector('#drawing-board'); if (!canvas) return;
+  const token = ++boardRenderToken; const context = canvas.getContext('2d');
+  const paint = () => {
+    if (token !== boardRenderToken) return;
+    context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+    const drawStrokes = () => (board.strokes || []).forEach(drawStrokeOnBoard);
+    if (!board.background) { drawStrokes(); return; }
+    const image = new Image();
+    image.onload = () => {
+      if (token !== boardRenderToken) return;
+      const scale = Math.min(canvas.width / image.width, canvas.height / image.height);
+      const width = image.width * scale; const height = image.height * scale;
+      context.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+      (state?.pictionaryBoard?.strokes || board.strokes || []).forEach(drawStrokeOnBoard);
+    };
+    image.src = board.background;
+  };
+  paint();
+}
+function drawStrokeOnBoard(stroke) {
+  const canvas = document.querySelector('#drawing-board'); if (!canvas || !stroke?.points?.length) return;
+  const context = canvas.getContext('2d'); const points = stroke.points;
+  context.strokeStyle = stroke.color || '#20233a'; context.lineWidth = (stroke.width || 0.008) * canvas.width; context.lineCap = 'round'; context.lineJoin = 'round';
+  context.beginPath(); context.moveTo(points[0][0] * canvas.width, points[0][1] * canvas.height);
+  if (points.length === 1) context.lineTo(points[0][0] * canvas.width, points[0][1] * canvas.height);
+  else for (const point of points.slice(1)) context.lineTo(point[0] * canvas.width, point[1] * canvas.height);
+  context.stroke();
+}
+function renderPictionaryReveal() {
+  const game = state.pictionary; const result = game.result || {};
+  const won = result.winnerTeam !== null && result.winnerTeam !== undefined;
+  const board = `<canvas id="drawing-board" width="900" height="560" aria-label="Dibujo de la ronda" style="display:block;width:100%;max-height:62vh;aspect-ratio:900/560;background:white;border-radius:14px"></canvas>`;
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Palabra revelada · ${game.turnIndex + 1} / ${game.teams.length}</div></header><section class="hero"><div class="eyebrow">Dibujo de campaña</div><h1>${escapeHtml(result.word || '')}</h1><p>${won ? `¡Equipo ${result.winnerTeam + 1} adivinó! Equipo ${result.drawerTeam + 1} dibujó.` : `Dibujó el Equipo ${result.drawerTeam + 1}. ${result.reason === 'timeout' ? 'Se acabó el tiempo.' : 'No hubo respuesta correcta.'}`}</p></section><section class="card">${board}</section><div class="team-list" style="margin-top:16px">${game.teams.map((team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div>${role === 'host' ? '<div class="center" style="margin-top:20px"><button class="btn" id="pictionary-next">Siguiente palabra</button></div>' : '<p class="footer">Espera a que el facilitador inicie el siguiente turno.</p>'}`;
+  drawPictionaryBoard(state.pictionaryBoard);
+  document.querySelector('#pictionary-next')?.addEventListener('click', () => send('pictionaryNext'));
 }
 async function compressPhoto(file) {
   let bitmap;

@@ -25,6 +25,7 @@ const MEMORY_DRAWINGS = [
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M100 55h120v130H100z" fill="#fff" stroke="#26334a" stroke-width="7"/><path d="M160 55v130" stroke="#26334a" stroke-width="5"/><path d="M125 95h20m50 35h20" stroke="#ff7395" stroke-width="9" stroke-linecap="round"/><path d="m120 145 12 12 22-25m47 13 10 10 18-20" fill="none" stroke="#58a85b" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M72 145c27-55 57-55 88 0 31-55 61-55 88 0" fill="none" stroke="#7ddcff" stroke-width="13" stroke-linecap="round"/><circle cx="72" cy="145" r="20" fill="#ffcf9f" stroke="#26334a" stroke-width="5"/><circle cx="248" cy="145" r="20" fill="#ffcf9f" stroke="#26334a" stroke-width="5"/><circle cx="160" cy="82" r="23" fill="#ff7395" stroke="#26334a" stroke-width="5"/><path d="M160 106v36" stroke="#26334a" stroke-width="7" stroke-linecap="round"/></svg>',
 ];
+const CAMPAIGN_WORDS = ['respeto', 'confianza', 'límites', 'consentimiento', 'pedir ayuda', 'adulto seguro', 'privacidad', 'apoyo', 'decir no', 'autocuidado', 'seguridad digital', 'escuchar', 'cuidarnos', 'bloquear', 'acompañar'];
 const memoryDrawing = (index) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(MEMORY_DRAWINGS[index % MEMORY_DRAWINGS.length])}`;
 const randomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(5)), (byte) => CODE_CHARS[byte % CODE_CHARS.length]).join('');
 const randomToken = () => `${crypto.randomUUID()}${crypto.randomUUID()}`;
@@ -37,7 +38,7 @@ export default {
       const teamCount = Math.min(15, Math.max(2, Number(settings.teamCount) || 2));
       const stepsCount = Math.min(10, Math.max(4, Number(settings.stepsCount) || 6));
       const turnSeconds = Math.min(300, Math.max(15, Number(settings.turnSeconds) || 60));
-      const mode = settings.mode === 'memory' ? 'memory' : 'phrase';
+      const mode = ['memory', 'pictionary'].includes(settings.mode) ? settings.mode : 'phrase';
       for (let attempt = 0; attempt < 8; attempt++) {
         const code = randomCode();
         const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
@@ -65,7 +66,7 @@ export class Room {
   async load() {
     this.state = await this.ctx.storage.get('game') || {
       phase: 'lobby', code: '', hostToken: '', teamCount: 2, stepsCount: 6, turnSeconds: 60, mode: 'phrase',
-      players: [], roundIndex: 0, scores: [0, 0], chains: [], memory: null,
+      players: [], roundIndex: 0, scores: [0, 0], chains: [], memory: null, pictionary: null,
     };
     let migrated = false;
     if (!Number.isFinite(this.state.turnSeconds)) { this.state.turnSeconds = 60; migrated = true; }
@@ -90,7 +91,7 @@ export class Room {
         this.state.teamCount = Math.min(15, Math.max(2, Number(data.teamCount) || 2));
         this.state.stepsCount = Math.min(10, Math.max(4, Number(data.stepsCount) || 6));
         this.state.turnSeconds = Math.min(300, Math.max(15, Number(data.turnSeconds) || 60));
-        this.state.mode = data.mode === 'memory' ? 'memory' : 'phrase';
+        this.state.mode = ['memory', 'pictionary'].includes(data.mode) ? data.mode : 'phrase';
         this.state.scores = Array(this.state.teamCount).fill(0);
         await this.save(); return Response.json({ created: true });
       }
@@ -119,16 +120,44 @@ export class Room {
         player.team = team; player.name = String(message.name || 'Participante').replace(/[<>]/g, '').slice(0, 18) || 'Participante';
       }
     } else if (message.type === 'start' && isHost && this.state.phase === 'lobby' && this.state.players.length) {
-      this.state.phase = 'relay'; this.state.roundIndex = 0; this.startChains();
+      this.state.roundIndex = 0;
+      if (this.state.mode === 'pictionary') { this.state.phase = 'pictionary'; this.startPictionary(); }
+      else { this.state.phase = 'relay'; this.startChains(); }
     } else if (message.type === 'submit' && !isHost && this.state.phase === 'relay') {
       await this.acceptContribution(meta.playerId, message);
+    } else if (message.type === 'pictionaryBackground' && !isHost && this.state.phase === 'pictionary') {
+      await this.acceptPictionaryBackground(meta.playerId, message.content);
+    } else if (message.type === 'pictionaryStroke' && !isHost && this.state.phase === 'pictionary') {
+      const stroke = this.acceptPictionaryStroke(meta.playerId, message.stroke);
+      if (!stroke) return;
+      await this.save();
+      for (const peer of this.ctx.getWebSockets()) { try { peer.send(JSON.stringify({ type: 'pictionaryStroke', stroke })); } catch { /* socket already closed */ } }
+      return;
+    } else if (message.type === 'pictionaryClear' && !isHost && this.state.phase === 'pictionary') {
+      this.clearPictionaryStrokes(meta.playerId);
+    } else if (message.type === 'pictionaryGuess' && !isHost && this.state.phase === 'pictionary') {
+      const correct = this.acceptPictionaryGuess(meta.playerId, message.guess);
+      try { ws.send(JSON.stringify({ type: 'pictionaryGuessResult', correct })); } catch { /* socket already closed */ }
+      if (this.state.phase === 'pictionary') {
+        await this.save();
+        for (const peer of this.ctx.getWebSockets()) { try { peer.send(JSON.stringify({ type: 'pictionaryStatus', guessCount: this.state.pictionary.guessCount })); } catch { /* socket already closed */ } }
+        return;
+      }
+    } else if (message.type === 'pictionaryFinish' && !isHost && this.state.phase === 'pictionary') {
+      this.finishPictionaryTurn('finished', meta.playerId);
+    } else if (message.type === 'pictionaryNext' && isHost && this.state.phase === 'pictionaryReveal') {
+      await this.clearPictionaryBackground();
+      const game = this.state.pictionary; game.turnIndex++;
+      if (game.turnIndex >= game.teams.length) { this.state.phase = 'end'; game.result = null; }
+      else { this.state.phase = 'pictionary'; this.beginPictionaryTurn(); }
     } else if (message.type === 'next' && isHost && this.state.phase === 'reveal') {
       await this.clearPhotos(); this.state.roundIndex++;
       if (this.state.roundIndex >= SEEDS.length) this.state.phase = 'end';
       else { this.state.phase = 'relay'; this.startChains(); }
     } else if (message.type === 'reset' && isHost && this.state.phase === 'end') {
       await this.clearPhotos(); this.state.phase = 'lobby'; this.state.roundIndex = 0;
-      this.state.scores = Array(this.state.teamCount).fill(0); this.state.chains = []; this.state.memory = null;
+      await this.clearPictionaryBackground();
+      this.state.scores = Array(this.state.teamCount).fill(0); this.state.chains = []; this.state.memory = null; this.state.pictionary = null;
     }
     await this.syncAlarm(); await this.save(); await this.broadcast();
   }
@@ -184,6 +213,68 @@ export class Room {
     });
   }
   chainLength() { return this.state.mode === 'memory' ? 1 : this.state.stepsCount; }
+  startPictionary() {
+    const teams = [...new Set(this.state.players.map((player) => player.team))].sort((a, b) => a - b);
+    this.state.pictionary = { teams, turnIndex: 0, drawerTeam: null, drawerId: null, word: '', deadlineAt: null, backgroundKey: null, strokes: [], guessedTeams: [], guessCount: 0, result: null };
+    this.beginPictionaryTurn();
+  }
+  beginPictionaryTurn() {
+    const game = this.state.pictionary;
+    const drawerTeam = game.teams[game.turnIndex];
+    const players = this.state.players.filter((player) => player.team === drawerTeam);
+    game.drawerTeam = drawerTeam;
+    game.drawerId = players[game.turnIndex % players.length]?.id;
+    game.word = CAMPAIGN_WORDS[(game.turnIndex * 7 + this.state.roundIndex) % CAMPAIGN_WORDS.length];
+    game.deadlineAt = Date.now() + this.state.turnSeconds * 1000;
+    game.backgroundKey = null; game.strokes = []; game.guessedTeams = []; game.guessCount = 0; game.result = null;
+  }
+  async acceptPictionaryBackground(playerId, content) {
+    const game = this.state.pictionary;
+    if (!game || game.drawerId !== playerId || game.deadlineAt <= Date.now()) return;
+    if (typeof content !== 'string' || !/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(content) || content.length > 480000) return;
+    game.backgroundKey = `pictionary:background:${game.turnIndex}`;
+    await this.ctx.storage.put(game.backgroundKey, content);
+  }
+  acceptPictionaryStroke(playerId, stroke) {
+    const game = this.state.pictionary;
+    if (!game || game.drawerId !== playerId || game.deadlineAt <= Date.now() || game.strokes.length >= 250) return;
+    if (!stroke || !/^#[0-9a-f]{6}$/i.test(stroke.color) || !Number.isFinite(stroke.width) || stroke.width < 0.001 || stroke.width > 0.04) return;
+    if (!Array.isArray(stroke.points) || stroke.points.length < 2 || stroke.points.length > 80) return;
+    if (!stroke.points.every((point) => Array.isArray(point) && point.length === 2 && point.every((value) => Number.isFinite(value) && value >= 0 && value <= 1))) return;
+    game.strokes.push({ color: stroke.color, width: stroke.width, points: stroke.points });
+    return game.strokes.at(-1);
+  }
+  clearPictionaryStrokes(playerId) {
+    const game = this.state.pictionary;
+    if (game?.drawerId === playerId) game.strokes = [];
+  }
+  acceptPictionaryGuess(playerId, guess) {
+    const game = this.state.pictionary;
+    const player = this.state.players.find((item) => item.id === playerId);
+    if (!game || !player || player.team === game.drawerTeam || game.deadlineAt <= Date.now()) return false;
+    game.guessCount++;
+    const normalize = (value) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (normalize(guess) !== normalize(game.word)) return false;
+    game.guessedTeams.push(player.team);
+    this.finishPictionaryTurn('guessed', null, player.team);
+    return true;
+  }
+  finishPictionaryTurn(reason, playerId = null, winnerTeam = null) {
+    const game = this.state.pictionary;
+    if (!game || this.state.phase !== 'pictionary' || (playerId && game.drawerId !== playerId)) return false;
+    game.result = { word: game.word, drawerTeam: game.drawerTeam, winnerTeam, reason };
+    if (winnerTeam !== null) {
+      this.state.scores[winnerTeam] = (this.state.scores[winnerTeam] || 0) + 2;
+      this.state.scores[game.drawerTeam] = (this.state.scores[game.drawerTeam] || 0) + 1;
+    }
+    this.state.phase = 'pictionaryReveal';
+    return true;
+  }
+  async clearPictionaryBackground() {
+    const key = this.state.pictionary?.backgroundKey;
+    if (key) await this.ctx.storage.delete(key);
+    if (this.state.pictionary) this.state.pictionary.backgroundKey = null;
+  }
   async acceptMemoryContribution(player, message) {
     const memory = this.state.memory;
     if (!player || !memory || Number(message.team) !== player.team || memory.doneTeams.includes(player.team)) return;
@@ -217,6 +308,9 @@ export class Room {
     memory.deadlineAt = memory.previewUntil + this.state.turnSeconds * 1000;
   }
   async syncAlarm() {
+    if (this.state.phase === 'pictionary' && this.state.pictionary?.deadlineAt) {
+      await this.ctx.storage.setAlarm(this.state.pictionary.deadlineAt); return;
+    }
     if (this.state.phase !== 'relay') { await this.ctx.storage.deleteAlarm(); return; }
     if (this.state.mode === 'memory' && this.state.memory) {
       const deadlines = [this.state.memory.previewUntil, this.state.memory.deadlineAt].filter(Number.isFinite);
@@ -268,6 +362,9 @@ export class Room {
   }
   async alarm() {
     await this.ready;
+    if (this.state.phase === 'pictionary' && this.state.pictionary?.deadlineAt <= Date.now()) {
+      this.finishPictionaryTurn('timeout'); await this.syncAlarm(); await this.save(); await this.broadcast(); return;
+    }
     if (this.state.phase === 'relay') await this.advanceExpiredTurns();
   }
   async clearPhotos() {
@@ -293,7 +390,20 @@ export class Room {
       const playerIndex = mine ? teamPlayers.findIndex((player) => player.id === mine.id) : -1;
       let chains = this.state.chains.map((chain) => ({ step: chain.step, deadlineAt: chain.deadlineAt || null, previewUntil: chain.previewUntil || null, entries: [] }));
       let memoryClue = null;
+      let pictionaryState = null; let pictionaryWord = null; let pictionaryBoard = null;
       const memory = this.state.memory;
+      const pictionary = this.state.pictionary;
+      if (pictionary && ['pictionary', 'pictionaryReveal'].includes(this.state.phase)) {
+        const isReveal = this.state.phase === 'pictionaryReveal';
+        pictionaryState = isReveal
+          ? { teams: pictionary.teams, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: pictionary.result }
+          : { teams: pictionary.teams, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: null };
+        if (isReveal || (meta?.role === 'player' && meta.playerId === pictionary.drawerId)) pictionaryWord = pictionary.word;
+        pictionaryBoard = {
+          background: pictionary.backgroundKey ? await this.ctx.storage.get(pictionary.backgroundKey) || '' : '',
+          strokes: pictionary.strokes,
+        };
+      }
       if (this.state.phase === 'reveal') {
         chains = await this.hydrateChains(this.state.mode === 'memory' && memory ? memory.chains : this.state.chains);
       }
@@ -325,6 +435,7 @@ export class Room {
           chains, teamCount: this.state.teamCount, stepsCount: this.state.stepsCount, turnSeconds: this.state.turnSeconds, mode: this.state.mode,
           memory: this.state.mode === 'memory' && memory ? { teams: memory.teams, stage: memory.stage, doneTeams: memory.doneTeams, deadlineAt: memory.deadlineAt, previewUntil: memory.previewUntil } : null,
           memoryClue,
+          pictionary: pictionaryState, pictionaryWord, pictionaryBoard,
           mine: mine ? { id: mine.id, team: mine.team, index: playerIndex } : null,
         },
       };
