@@ -90,7 +90,7 @@ export class Room {
       await this.clearPhotos(); this.state.roundIndex++;
       if (this.state.roundIndex >= SEEDS.length) this.state.phase = 'end';
       else { this.state.phase = 'relay'; this.startChains(); }
-    } else if (message.type === 'reset' && isHost) {
+    } else if (message.type === 'reset' && isHost && this.state.phase === 'end') {
       await this.clearPhotos(); this.state.phase = 'lobby'; this.state.roundIndex = 0;
       this.state.scores = Array(this.state.teamCount).fill(0); this.state.chains = [];
     }

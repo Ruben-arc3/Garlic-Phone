@@ -197,6 +197,9 @@ function renderReveal() {
 function renderEnd() {
   const teamCount = state.teamCount || 2;
   app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Cierre</div></header><section class="hero"><div class="eyebrow">Gracias por participar</div><h1>Una comunidad que escucha y protege.</h1><p>Puedes poner límites, pedir ayuda y acompañar a alguien sin juzgar.</p></section><section class="card center"><div class="team-list">${Array.from({ length: teamCount }, (_, team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div><p>Si necesitas apoyo, acércate en privado al orientador o adulto responsable de protección de tu institución.</p>${role==='host'?'<button class="btn" id="again">Reiniciar partida</button>':''}</section>`;
-  document.querySelector('#again')?.addEventListener('click', () => send('reset'));
+  document.querySelector('#again')?.addEventListener('click', () => {
+    if (role !== 'host') return;
+    if (window.confirm('¿Reiniciar la partida para todos? Se borrará el progreso y volverán a la sala de equipos.')) send('reset');
+  });
 }
 home();
