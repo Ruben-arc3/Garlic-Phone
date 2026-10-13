@@ -10,6 +10,20 @@ const MEMORY_DRAWINGS = [
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M110 182V95c0-12 18-13 18 0V65c0-13 19-13 19 0V51c0-13 19-13 19 0v15c0-13 19-13 19 0v42l15-18c9-10 24 1 17 12l-31 54c-9 16-22 26-42 26z" fill="#ffcf9f" stroke="#26334a" stroke-width="7" stroke-linejoin="round"/><path d="m232 60 8 17 18 2-14 12 4 18-16-9-16 9 4-18-14-12 18-2z" fill="#c8f36a" stroke="#26334a" stroke-width="4"/></svg>',
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><circle cx="105" cy="80" r="25" fill="#ffcf9f" stroke="#26334a" stroke-width="6"/><circle cx="215" cy="80" r="25" fill="#ffcf9f" stroke="#26334a" stroke-width="6"/><path d="M55 175c4-42 21-63 50-63s46 21 50 63M165 175c4-42 21-63 50-63s46 21 50 63" fill="#7ddcff" stroke="#26334a" stroke-width="7" stroke-linecap="round"/><path d="m134 140 18 18 36-42" fill="none" stroke="#58a85b" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><rect x="112" y="28" width="96" height="164" rx="18" fill="#7ddcff" stroke="#26334a" stroke-width="8"/><rect x="124" y="48" width="72" height="112" rx="5" fill="#fff"/><path d="M145 97v-9a15 15 0 0 1 30 0v9m-35 0h40v32h-40z" fill="#c8f36a" stroke="#26334a" stroke-width="6" stroke-linejoin="round"/><circle cx="160" cy="176" r="5" fill="#26334a"/><path d="M65 73c12-12 27-18 43-18m104 0c16 0 31 6 43 18" fill="none" stroke="#ff7395" stroke-width="8" stroke-linecap="round"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M75 70h170v100H75z" rx="25" fill="#fff" stroke="#26334a" stroke-width="7"/><path d="M75 145 47 171v-53" fill="#fff" stroke="#26334a" stroke-width="7" stroke-linejoin="round"/><path d="M150 101c-15-20-42 0-27 17l27 26 27-26c15-17-12-37-27-17z" fill="#ff7395"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M70 112a90 70 0 0 1 180 0z" fill="#c8f36a" stroke="#26334a" stroke-width="8"/><path d="M160 112v67m-40 0h80" stroke="#26334a" stroke-width="9" stroke-linecap="round"/><path d="m95 55-9 18m139-18 9 18" stroke="#7ddcff" stroke-width="8" stroke-linecap="round"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="m160 35 78 60-20 92H102l-20-92z" fill="#ffcf9f" stroke="#26334a" stroke-width="8" stroke-linejoin="round"/><rect x="140" y="112" width="40" height="75" rx="18" fill="#7ddcff" stroke="#26334a" stroke-width="6"/><circle cx="160" cy="83" r="13" fill="#ff7395"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M160 35 238 65v55c0 42-34 67-78 84-44-17-78-42-78-84V65z" fill="#c8f36a" stroke="#26334a" stroke-width="8"/><path d="m122 111 25 25 53-59" fill="none" stroke="#26334a" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><circle cx="115" cy="80" r="25" fill="#ffcf9f" stroke="#26334a" stroke-width="6"/><circle cx="205" cy="80" r="25" fill="#ffcf9f" stroke="#26334a" stroke-width="6"/><path d="M65 178c5-43 20-62 50-62 20 0 35 12 43 38 8-26 23-38 47-38 30 0 45 19 50 62" fill="#ff7395" stroke="#26334a" stroke-width="7" stroke-linecap="round"/><path d="M137 145h46" stroke="#c8f36a" stroke-width="10" stroke-linecap="round"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><rect x="80" y="35" width="160" height="150" rx="15" fill="#fff" stroke="#26334a" stroke-width="7"/><path d="M110 80h100m-100 35h100m-100 35h52" stroke="#7ddcff" stroke-width="10" stroke-linecap="round"/><path d="m180 147 15 14 29-34" fill="none" stroke="#58a85b" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M160 35v150M85 70h150M100 70l-40 65h80zm120 0-40 65h80z" fill="#7ddcff" stroke="#26334a" stroke-width="7" stroke-linejoin="round"/><path d="M115 185h90" stroke="#26334a" stroke-width="9" stroke-linecap="round"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><circle cx="160" cy="110" r="18" fill="#ff7395"/><circle cx="160" cy="58" r="24" fill="#c8f36a"/><circle cx="160" cy="162" r="24" fill="#c8f36a"/><circle cx="108" cy="110" r="24" fill="#7ddcff"/><circle cx="212" cy="110" r="24" fill="#7ddcff"/><path d="M160 80v12m0 36v10m-28-28h12m32 0h12" stroke="#26334a" stroke-width="6"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M90 45h140v140H90z" fill="#ffcf9f" stroke="#26334a" stroke-width="8"/><path d="M115 80h90m-90 30h90m-90 30h54" stroke="#26334a" stroke-width="7" stroke-linecap="round"/><circle cx="205" cy="160" r="16" fill="#c8f36a" stroke="#26334a" stroke-width="5"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M90 160 150 75l40 48 32-39 30 76z" fill="#7ddcff" stroke="#26334a" stroke-width="7" stroke-linejoin="round"/><circle cx="105" cy="65" r="18" fill="#c8f36a"/><path d="M60 185h200" stroke="#26334a" stroke-width="8" stroke-linecap="round"/><path d="m160 132 8 17 19 2-14 13 4 18-17-9-17 9 4-18-14-13 19-2z" fill="#ff7395" stroke="#26334a" stroke-width="4"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><circle cx="160" cy="73" r="27" fill="#ffcf9f" stroke="#26334a" stroke-width="6"/><path d="M105 184c5-58 23-84 55-84s50 26 55 84" fill="#ff7395" stroke="#26334a" stroke-width="7"/><path d="M82 120h50m56 0h50" stroke="#7ddcff" stroke-width="9" stroke-linecap="round"/><path d="m68 112 14 8-14 8m170-16 14 8-14 8" fill="none" stroke="#26334a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M75 170 160 55l85 115z" fill="#c8f36a" stroke="#26334a" stroke-width="8" stroke-linejoin="round"/><circle cx="160" cy="126" r="27" fill="#7ddcff" stroke="#26334a" stroke-width="6"/><path d="M160 108v20l14 10" fill="none" stroke="#26334a" stroke-width="6" stroke-linecap="round"/><path d="M105 184h110" stroke="#26334a" stroke-width="8" stroke-linecap="round"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M100 55h120v130H100z" fill="#fff" stroke="#26334a" stroke-width="7"/><path d="M160 55v130" stroke="#26334a" stroke-width="5"/><path d="M125 95h20m50 35h20" stroke="#ff7395" stroke-width="9" stroke-linecap="round"/><path d="m120 145 12 12 22-25m47 13 10 10 18-20" fill="none" stroke="#58a85b" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M72 145c27-55 57-55 88 0 31-55 61-55 88 0" fill="none" stroke="#7ddcff" stroke-width="13" stroke-linecap="round"/><circle cx="72" cy="145" r="20" fill="#ffcf9f" stroke="#26334a" stroke-width="5"/><circle cx="248" cy="145" r="20" fill="#ffcf9f" stroke="#26334a" stroke-width="5"/><circle cx="160" cy="82" r="23" fill="#ff7395" stroke="#26334a" stroke-width="5"/><path d="M160 106v36" stroke="#26334a" stroke-width="7" stroke-linecap="round"/></svg>',
 ];
 const memoryDrawing = (index) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(MEMORY_DRAWINGS[index % MEMORY_DRAWINGS.length])}`;
 const randomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(5)), (byte) => CODE_CHARS[byte % CODE_CHARS.length]).join('');
@@ -51,7 +65,7 @@ export class Room {
   async load() {
     this.state = await this.ctx.storage.get('game') || {
       phase: 'lobby', code: '', hostToken: '', teamCount: 2, stepsCount: 6, turnSeconds: 60, mode: 'phrase',
-      players: [], roundIndex: 0, scores: [0, 0], chains: [],
+      players: [], roundIndex: 0, scores: [0, 0], chains: [], memory: null,
     };
     let migrated = false;
     if (!Number.isFinite(this.state.turnSeconds)) { this.state.turnSeconds = 60; migrated = true; }
@@ -114,12 +128,13 @@ export class Room {
       else { this.state.phase = 'relay'; this.startChains(); }
     } else if (message.type === 'reset' && isHost && this.state.phase === 'end') {
       await this.clearPhotos(); this.state.phase = 'lobby'; this.state.roundIndex = 0;
-      this.state.scores = Array(this.state.teamCount).fill(0); this.state.chains = [];
+      this.state.scores = Array(this.state.teamCount).fill(0); this.state.chains = []; this.state.memory = null;
     }
     await this.syncAlarm(); await this.save(); await this.broadcast();
   }
   async acceptContribution(playerId, message) {
     const player = this.state.players.find((item) => item.id === playerId); const chain = player && this.state.chains[player.team];
+    if (this.state.mode === 'memory') return this.acceptMemoryContribution(player, message);
     if (!player || !chain || chain.step >= this.chainLength() || Number(message.team) !== player.team) return;
     if (chain.deadlineAt && chain.deadlineAt <= Date.now()) {
       await this.advanceExpiredTurns();
@@ -142,6 +157,20 @@ export class Room {
     this.finishRoundIfComplete();
   }
   startChains() {
+    if (this.state.mode === 'memory') {
+      const teams = [...new Set(this.state.players.map((player) => player.team))].sort((a, b) => a - b);
+      const previewUntil = Date.now() + 8000;
+      const chains = Array.from({ length: this.state.teamCount }, () => ({ step: 0, entries: [] }));
+      teams.forEach((team, index) => {
+        chains[team] = { step: 0, entries: [{ kind: 'image', content: memoryDrawing((index + this.state.roundIndex) % MEMORY_DRAWINGS.length) }] };
+      });
+      this.state.memory = {
+        teams, stage: 0, doneTeams: [], chains,
+        previewUntil, deadlineAt: previewUntil + this.state.turnSeconds * 1000,
+      };
+      this.state.chains = [];
+      return;
+    }
     const deadlineAt = Date.now() + this.state.turnSeconds * 1000;
     const previewUntil = this.state.mode === 'memory' ? Date.now() + 8000 : null;
     const actionDeadlineAt = previewUntil ? previewUntil + this.state.turnSeconds * 1000 : deadlineAt;
@@ -155,8 +184,46 @@ export class Room {
     });
   }
   chainLength() { return this.state.mode === 'memory' ? 1 : this.state.stepsCount; }
+  async acceptMemoryContribution(player, message) {
+    const memory = this.state.memory;
+    if (!player || !memory || Number(message.team) !== player.team || memory.doneTeams.includes(player.team)) return;
+    const teamIndex = memory.teams.indexOf(player.team);
+    if (teamIndex < 0) return;
+    if (memory.deadlineAt <= Date.now()) { await this.advanceExpiredTurns(); return; }
+    if (memory.previewUntil && memory.previewUntil > Date.now()) return;
+    const players = this.state.players.filter((item) => item.team === player.team);
+    const expectedPlayer = players[memory.stage % players.length];
+    const content = typeof message.content === 'string' ? message.content.trim() : '';
+    if (expectedPlayer?.id !== player.id || message.kind !== 'image' || !/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(content) || content.length > 480000) return;
+    const originIndex = (teamIndex - memory.stage + memory.teams.length) % memory.teams.length;
+    const originTeam = memory.teams[originIndex];
+    const photoKey = `photo:${this.state.roundIndex}:memory:${memory.stage}:${player.team}`;
+    await this.ctx.storage.put(photoKey, content);
+    memory.chains[originTeam].entries.push({ kind: 'image', photoKey });
+    memory.doneTeams.push(player.team);
+    if (memory.doneTeams.length === memory.teams.length) this.advanceMemoryStage();
+  }
+  advanceMemoryStage() {
+    const memory = this.state.memory;
+    if (!memory || memory.doneTeams.length < memory.teams.length) return;
+    if (memory.stage + 1 >= memory.teams.length) {
+      this.state.phase = 'reveal';
+      this.state.scores = this.state.scores.map((score, team) => score + (this.state.players.some((item) => item.team === team) ? 1 : 0));
+      return;
+    }
+    memory.stage++;
+    memory.doneTeams = [];
+    memory.previewUntil = Date.now() + 8000;
+    memory.deadlineAt = memory.previewUntil + this.state.turnSeconds * 1000;
+  }
   async syncAlarm() {
     if (this.state.phase !== 'relay') { await this.ctx.storage.deleteAlarm(); return; }
+    if (this.state.mode === 'memory' && this.state.memory) {
+      const deadlines = [this.state.memory.previewUntil, this.state.memory.deadlineAt].filter(Number.isFinite);
+      if (deadlines.length) await this.ctx.storage.setAlarm(Math.min(...deadlines));
+      else await this.ctx.storage.deleteAlarm();
+      return;
+    }
     const deadlines = this.state.chains.flatMap((chain) => [chain.deadlineAt, chain.previewUntil]).filter((deadline) => Number.isFinite(deadline));
     if (deadlines.length) await this.ctx.storage.setAlarm(Math.min(...deadlines));
     else await this.ctx.storage.deleteAlarm();
@@ -168,6 +235,23 @@ export class Room {
   }
   async advanceExpiredTurns() {
     const now = Date.now();
+    if (this.state.mode === 'memory' && this.state.memory) {
+      const memory = this.state.memory;
+      if (memory.previewUntil && memory.previewUntil <= now) memory.previewUntil = null;
+      if (memory.deadlineAt <= now && this.state.phase === 'relay') {
+        for (const team of memory.teams) {
+          if (memory.doneTeams.includes(team)) continue;
+          const teamIndex = memory.teams.indexOf(team);
+          const originIndex = (teamIndex - memory.stage + memory.teams.length) % memory.teams.length;
+          const originTeam = memory.teams[originIndex];
+          memory.chains[originTeam].entries.push({ kind: 'text', content: 'Este equipo no alcanzó a enviar una réplica en este turno.' });
+          memory.doneTeams.push(team);
+        }
+        this.advanceMemoryStage();
+      }
+      await this.syncAlarm(); await this.save(); await this.broadcast();
+      return;
+    }
     let previewExpired = false;
     for (const chain of this.state.chains) {
       if (chain.previewUntil && chain.previewUntil <= now) { chain.previewUntil = null; previewExpired = true; }
@@ -208,7 +292,25 @@ export class Room {
       const teamPlayers = mine ? players.filter((player) => player.team === mine.team) : [];
       const playerIndex = mine ? teamPlayers.findIndex((player) => player.id === mine.id) : -1;
       let chains = this.state.chains.map((chain) => ({ step: chain.step, deadlineAt: chain.deadlineAt || null, previewUntil: chain.previewUntil || null, entries: [] }));
-      if (this.state.phase === 'reveal') chains = await this.hydrateChains(this.state.chains);
+      let memoryClue = null;
+      const memory = this.state.memory;
+      if (this.state.phase === 'reveal') {
+        chains = await this.hydrateChains(this.state.mode === 'memory' && memory ? memory.chains : this.state.chains);
+      }
+      else if (this.state.mode === 'memory' && memory) {
+        if (mine) {
+          const teamIndex = memory.teams.indexOf(mine.team);
+          const teamIsPending = teamIndex >= 0 && !memory.doneTeams.includes(mine.team);
+          const expectedPlayer = teamIsPending ? teamPlayers[memory.stage % Math.max(teamPlayers.length, 1)] : null;
+          if (expectedPlayer?.id === mine.id && memory.previewUntil && memory.previewUntil > Date.now()) {
+            const originIndex = (teamIndex - memory.stage + memory.teams.length) % memory.teams.length;
+            const originTeam = memory.teams[originIndex];
+            const entries = memory.chains[originTeam].entries;
+            const latestDrawing = [...entries].reverse().find((entry) => entry.kind === 'image');
+            if (latestDrawing) memoryClue = await this.hydrateEntry(latestDrawing);
+          }
+        }
+      }
       else if (mine && this.state.phase === 'relay') {
         const chain = this.state.chains[mine.team]; const clue = chain.entries.at(-1);
         const teamPlayers = players.filter((player) => player.team === mine.team);
@@ -221,6 +323,8 @@ export class Room {
         type: 'state', state: {
           phase: this.state.phase, players, roundIndex: this.state.roundIndex, scores: this.state.scores,
           chains, teamCount: this.state.teamCount, stepsCount: this.state.stepsCount, turnSeconds: this.state.turnSeconds, mode: this.state.mode,
+          memory: this.state.mode === 'memory' && memory ? { teams: memory.teams, stage: memory.stage, doneTeams: memory.doneTeams, deadlineAt: memory.deadlineAt, previewUntil: memory.previewUntil } : null,
+          memoryClue,
           mine: mine ? { id: mine.id, team: mine.team, index: playerIndex } : null,
         },
       };
