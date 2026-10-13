@@ -26,7 +26,8 @@ Despliega el Worker con Wrangler. Pages Functions usa el mismo dominio y no requ
 - El facilitador puede configurar entre 2 y 15 equipos, entre 4 y 10 pasos por cadena y entre 15 y 300 segundos para cada turno.
 - El temporizador sincronizado aparece en el proyector y en los celulares; al agotarse, el equipo pasa automáticamente al siguiente turno.
 - El QR lleva directo a la sala; el estudiante solo escribe un apodo antes de elegir equipo.
-- Cada cadena empieza con una frase educativa, que solo ve el primer participante de ese equipo.
+- El modo Knock-Off de frase inicia todos los equipos con la misma frase educativa, visible solo para quien tiene el turno.
+- El modo Knock-Off de memoria visual muestra a cada equipo el mismo dibujo modelo durante 8 segundos; luego una persona lo reproduce en papel desde la memoria y sube la foto. Al final se comparan las réplicas.
 - Cada turno de dibujo permite fotografiar una hoja o seleccionar la imagen desde el celular; la imagen se comprime y se guarda separada del estado de la sala. En los otros turnos, un jugador interpreta el dibujo por escrito.
 - Al completar la cadena, la pantalla proyectada revela la frase original, los dibujos y las interpretaciones para conversar sobre cómo se transmitió el mensaje.
 - Las frases tratan de límites, pedir ayuda y apoyo entre compañeros; no se solicita que nadie comparta experiencias personales. La pantalla recuerda fotografiar solo la hoja, sin caras ni datos identificables.

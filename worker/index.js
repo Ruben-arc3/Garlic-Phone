@@ -5,6 +5,13 @@ const SEEDS = [
   'Escucha sin juzgar y acompaña a tu amigo a buscar ayuda de una persona adulta segura.',
   'No compartas una imagen por presión. Guarda evidencia si es seguro y pide apoyo.',
 ];
+const MEMORY_DRAWINGS = [
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M160 35 238 65v55c0 42-34 67-78 84-44-17-78-42-78-84V65z" fill="#7ddcff" stroke="#26334a" stroke-width="8"/><path d="M160 72c-20-24-53 2-34 23l34 35 34-35c19-21-14-47-34-23z" fill="#ff7395" stroke="#26334a" stroke-width="6"/><circle cx="80" cy="170" r="10" fill="#c8f36a"/><circle cx="240" cy="170" r="10" fill="#c8f36a"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><path d="M110 182V95c0-12 18-13 18 0V65c0-13 19-13 19 0V51c0-13 19-13 19 0v15c0-13 19-13 19 0v42l15-18c9-10 24 1 17 12l-31 54c-9 16-22 26-42 26z" fill="#ffcf9f" stroke="#26334a" stroke-width="7" stroke-linejoin="round"/><path d="m232 60 8 17 18 2-14 12 4 18-16-9-16 9 4-18-14-12 18-2z" fill="#c8f36a" stroke="#26334a" stroke-width="4"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><circle cx="105" cy="80" r="25" fill="#ffcf9f" stroke="#26334a" stroke-width="6"/><circle cx="215" cy="80" r="25" fill="#ffcf9f" stroke="#26334a" stroke-width="6"/><path d="M55 175c4-42 21-63 50-63s46 21 50 63M165 175c4-42 21-63 50-63s46 21 50 63" fill="#7ddcff" stroke="#26334a" stroke-width="7" stroke-linecap="round"/><path d="m134 140 18 18 36-42" fill="none" stroke="#58a85b" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220"><rect width="320" height="220" rx="24" fill="#f8f5e8"/><rect x="112" y="28" width="96" height="164" rx="18" fill="#7ddcff" stroke="#26334a" stroke-width="8"/><rect x="124" y="48" width="72" height="112" rx="5" fill="#fff"/><path d="M145 97v-9a15 15 0 0 1 30 0v9m-35 0h40v32h-40z" fill="#c8f36a" stroke="#26334a" stroke-width="6" stroke-linejoin="round"/><circle cx="160" cy="176" r="5" fill="#26334a"/><path d="M65 73c12-12 27-18 43-18m104 0c16 0 31 6 43 18" fill="none" stroke="#ff7395" stroke-width="8" stroke-linecap="round"/></svg>',
+];
+const memoryDrawing = (index) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(MEMORY_DRAWINGS[index % MEMORY_DRAWINGS.length])}`;
 const randomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(5)), (byte) => CODE_CHARS[byte % CODE_CHARS.length]).join('');
 const randomToken = () => `${crypto.randomUUID()}${crypto.randomUUID()}`;
 
@@ -16,13 +23,14 @@ export default {
       const teamCount = Math.min(15, Math.max(2, Number(settings.teamCount) || 2));
       const stepsCount = Math.min(10, Math.max(4, Number(settings.stepsCount) || 6));
       const turnSeconds = Math.min(300, Math.max(15, Number(settings.turnSeconds) || 60));
+      const mode = settings.mode === 'memory' ? 'memory' : 'phrase';
       for (let attempt = 0; attempt < 8; attempt++) {
         const code = randomCode();
         const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
         const token = randomToken();
         const response = await stub.fetch('https://room/init', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ code, token, teamCount, stepsCount, turnSeconds, createOnly: true }),
+          body: JSON.stringify({ code, token, teamCount, stepsCount, turnSeconds, mode, createOnly: true }),
         });
         if ((await response.json()).created) return Response.json({ code, token });
       }
@@ -42,7 +50,7 @@ export class Room {
   constructor(ctx) { this.ctx = ctx; this.state = null; this.ready = this.load(); }
   async load() {
     this.state = await this.ctx.storage.get('game') || {
-      phase: 'lobby', code: '', hostToken: '', teamCount: 2, stepsCount: 6, turnSeconds: 60,
+      phase: 'lobby', code: '', hostToken: '', teamCount: 2, stepsCount: 6, turnSeconds: 60, mode: 'phrase',
       players: [], roundIndex: 0, scores: [0, 0], chains: [],
     };
     let migrated = false;
@@ -68,6 +76,7 @@ export class Room {
         this.state.teamCount = Math.min(15, Math.max(2, Number(data.teamCount) || 2));
         this.state.stepsCount = Math.min(10, Math.max(4, Number(data.stepsCount) || 6));
         this.state.turnSeconds = Math.min(300, Math.max(15, Number(data.turnSeconds) || 60));
+        this.state.mode = data.mode === 'memory' ? 'memory' : 'phrase';
         this.state.scores = Array(this.state.teamCount).fill(0);
         await this.save(); return Response.json({ created: true });
       }
@@ -111,13 +120,14 @@ export class Room {
   }
   async acceptContribution(playerId, message) {
     const player = this.state.players.find((item) => item.id === playerId); const chain = player && this.state.chains[player.team];
-    if (!player || !chain || chain.step >= this.state.stepsCount || Number(message.team) !== player.team) return;
+    if (!player || !chain || chain.step >= this.chainLength() || Number(message.team) !== player.team) return;
     if (chain.deadlineAt && chain.deadlineAt <= Date.now()) {
       await this.advanceExpiredTurns();
       return;
     }
+    if (this.state.mode === 'memory' && chain.previewUntil && chain.previewUntil > Date.now()) return;
     const teamPlayers = this.state.players.filter((item) => item.team === player.team);
-    const expectedPlayer = teamPlayers[chain.step % teamPlayers.length]; const expectedKind = chain.step % 2 === 0 ? 'image' : 'text';
+    const expectedPlayer = teamPlayers[chain.step % teamPlayers.length]; const expectedKind = this.state.mode === 'memory' ? 'image' : (chain.step % 2 === 0 ? 'image' : 'text');
     const content = typeof message.content === 'string' ? message.content.trim() : '';
     const validImage = message.kind !== 'image' || (/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(content) && content.length <= 480000);
     const validText = message.kind !== 'text' || content.length <= 140;
@@ -127,41 +137,50 @@ export class Room {
       await this.ctx.storage.put(photoKey, content); chain.entries.push({ kind: 'image', photoKey });
     } else chain.entries.push({ kind: 'text', content });
     chain.step++;
-    chain.deadlineAt = chain.step < this.state.stepsCount ? Date.now() + this.state.turnSeconds * 1000 : null;
-    if (this.state.chains.every((item) => item.step >= this.state.stepsCount)) {
-      this.state.phase = 'reveal';
-      this.state.scores = this.state.scores.map((score, team) => score + (this.state.players.some((item) => item.team === team) ? 1 : 0));
-    }
+    chain.previewUntil = null;
+    chain.deadlineAt = chain.step < this.chainLength() ? Date.now() + this.state.turnSeconds * 1000 : null;
+    this.finishRoundIfComplete();
   }
   startChains() {
     const deadlineAt = Date.now() + this.state.turnSeconds * 1000;
+    const previewUntil = this.state.mode === 'memory' ? Date.now() + 8000 : null;
+    const actionDeadlineAt = previewUntil ? previewUntil + this.state.turnSeconds * 1000 : deadlineAt;
+    const chainLength = this.chainLength();
     this.state.chains = Array.from({ length: this.state.teamCount }, (_, team) => {
-      if (!this.state.players.some((player) => player.team === team)) return { step: this.state.stepsCount, entries: [], deadlineAt: null };
-      return { step: 0, entries: [{ kind: 'text', content: SEEDS[this.state.roundIndex % SEEDS.length] }], deadlineAt };
+      if (!this.state.players.some((player) => player.team === team)) return { step: chainLength, entries: [], deadlineAt: null, previewUntil: null };
+      const seed = this.state.mode === 'memory'
+        ? { kind: 'image', content: memoryDrawing(this.state.roundIndex) }
+        : { kind: 'text', content: SEEDS[this.state.roundIndex % SEEDS.length] };
+      return { step: 0, entries: [seed], deadlineAt: actionDeadlineAt, previewUntil };
     });
   }
+  chainLength() { return this.state.mode === 'memory' ? 1 : this.state.stepsCount; }
   async syncAlarm() {
     if (this.state.phase !== 'relay') { await this.ctx.storage.deleteAlarm(); return; }
-    const deadlines = this.state.chains.map((chain) => chain.deadlineAt).filter((deadline) => Number.isFinite(deadline));
+    const deadlines = this.state.chains.flatMap((chain) => [chain.deadlineAt, chain.previewUntil]).filter((deadline) => Number.isFinite(deadline));
     if (deadlines.length) await this.ctx.storage.setAlarm(Math.min(...deadlines));
     else await this.ctx.storage.deleteAlarm();
   }
   finishRoundIfComplete() {
-    if (!this.state.chains.length || !this.state.chains.every((chain) => chain.step >= this.state.stepsCount)) return;
+    if (!this.state.chains.length || !this.state.chains.every((chain) => chain.step >= this.chainLength())) return;
     this.state.phase = 'reveal';
     this.state.scores = this.state.scores.map((score, team) => score + (this.state.players.some((player) => player.team === team) ? 1 : 0));
   }
   async advanceExpiredTurns() {
     const now = Date.now();
+    let previewExpired = false;
     for (const chain of this.state.chains) {
-      if (chain.step < this.state.stepsCount && chain.deadlineAt && chain.deadlineAt <= now) {
+      if (chain.previewUntil && chain.previewUntil <= now) { chain.previewUntil = null; previewExpired = true; }
+      if (chain.step < this.chainLength() && chain.deadlineAt && chain.deadlineAt <= now) {
         chain.entries.push({ kind: 'text', content: 'El tiempo terminó; el equipo continúa al siguiente turno.' });
         chain.step++;
-        chain.deadlineAt = chain.step < this.state.stepsCount ? now + this.state.turnSeconds * 1000 : null;
+        chain.deadlineAt = chain.step < this.chainLength() ? now + this.state.turnSeconds * 1000 : null;
+        chain.previewUntil = null;
       }
     }
     this.finishRoundIfComplete();
-    await this.syncAlarm(); await this.save(); await this.broadcast();
+    await this.syncAlarm(); await this.save();
+    if (previewExpired || this.state.phase !== 'relay' || this.ctx.getWebSockets().length) await this.broadcast();
   }
   async alarm() {
     await this.ready;
@@ -176,7 +195,7 @@ export class Room {
     await this.ready; await this.broadcast();
   }
   async hydrateEntry(entry) {
-    if (entry.kind !== 'image') return entry;
+    if (entry.kind !== 'image' || entry.content) return entry;
     return { kind: 'image', content: await this.ctx.storage.get(entry.photoKey) || '' };
   }
   async hydrateChains(chains) {
@@ -188,16 +207,20 @@ export class Room {
       const meta = ws.deserializeAttachment(); const mine = meta?.role === 'player' ? players.find((player) => player.id === meta.playerId) : null;
       const teamPlayers = mine ? players.filter((player) => player.team === mine.team) : [];
       const playerIndex = mine ? teamPlayers.findIndex((player) => player.id === mine.id) : -1;
-      let chains = this.state.chains.map((chain) => ({ step: chain.step, deadlineAt: chain.deadlineAt || null, entries: [] }));
+      let chains = this.state.chains.map((chain) => ({ step: chain.step, deadlineAt: chain.deadlineAt || null, previewUntil: chain.previewUntil || null, entries: [] }));
       if (this.state.phase === 'reveal') chains = await this.hydrateChains(this.state.chains);
       else if (mine && this.state.phase === 'relay') {
         const chain = this.state.chains[mine.team]; const clue = chain.entries.at(-1);
-        chains[mine.team] = { step: chain.step, deadlineAt: chain.deadlineAt || null, entries: clue ? [await this.hydrateEntry(clue)] : [] };
+        const teamPlayers = players.filter((player) => player.team === mine.team);
+        const isCurrentPlayer = teamPlayers[chain.step % Math.max(teamPlayers.length, 1)]?.id === mine.id;
+        const memoryHidden = this.state.mode === 'memory' && chain.step === 0 && (!chain.previewUntil || chain.previewUntil <= Date.now());
+        const visibleClue = isCurrentPlayer && !memoryHidden ? clue : null;
+        chains[mine.team] = { step: chain.step, deadlineAt: chain.deadlineAt || null, previewUntil: chain.previewUntil || null, entries: visibleClue ? [await this.hydrateEntry(visibleClue)] : [] };
       }
       const payload = {
         type: 'state', state: {
           phase: this.state.phase, players, roundIndex: this.state.roundIndex, scores: this.state.scores,
-          chains, teamCount: this.state.teamCount, stepsCount: this.state.stepsCount, turnSeconds: this.state.turnSeconds,
+          chains, teamCount: this.state.teamCount, stepsCount: this.state.stepsCount, turnSeconds: this.state.turnSeconds, mode: this.state.mode,
           mine: mine ? { id: mine.id, team: mine.team, index: playerIndex } : null,
         },
       };

@@ -38,11 +38,18 @@ function home() {
   socket?.close(); app.dataset.screen = 'home'; app.className = 'shell';
   app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Juego educativo en vivo</div></header>
     <section class="hero"><div class="eyebrow">Aprender jugando · cuidarnos en comunidad</div><h1>Las buenas respuestas<br>se construyen en equipo.</h1><p>Un teléfono descompuesto de dibujos e interpretaciones para conversar sobre límites y apoyo.</p></section>
-    <section class="home-grid"><article class="card" id="host-card"><div class="eyebrow">Facilitador</div><h2>Crear una sala</h2><p>Proyecta el código y juega con el grupo.</p><label class="field-label" for="team-count">Cantidad de equipos</label><select class="input" id="team-count">${Array.from({length:14},(_,i)=>i+2).map(n=>`<option value="${n}" ${n===2?'selected':''}>${n} equipos</option>`).join('')}</select><label class="field-label" for="step-count">Aportes por equipo</label><select class="input" id="step-count">${[4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${n===6?'selected':''}>${n} pasos</option>`).join('')}</select><label class="field-label" for="turn-seconds">Tiempo por turno (segundos)</label><input class="input" id="turn-seconds" type="number" min="15" max="300" step="5" value="60"><p class="note">Entre 15 segundos y 5 minutos; el turno avanza automáticamente.</p><button class="btn full" id="create">Crear sala en vivo</button><div class="status" id="host-status"></div></article>
+    <section class="home-grid"><article class="card" id="host-card"><div class="eyebrow">Facilitador</div><h2>Crear una sala</h2><p>Proyecta el código y juega con el grupo.</p><label class="field-label" for="team-count">Cantidad de equipos</label><select class="input" id="team-count">${Array.from({length:14},(_,i)=>i+2).map(n=>`<option value="${n}" ${n===2?'selected':''}>${n} equipos</option>`).join('')}</select><label class="field-label" for="game-mode">Modo de juego</label><select class="input" id="game-mode"><option value="phrase">Knock-Off · misma frase educativa</option><option value="memory">Knock-Off · memorizar dibujo</option></select><p class="note">En memorizar dibujo, cada equipo ve el modelo durante 8 segundos y luego lo replica desde la memoria.</p><label class="field-label" for="step-count">Aportes por equipo (modo frase)</label><select class="input" id="step-count">${[4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${n===6?'selected':''}>${n} pasos</option>`).join('')}</select><label class="field-label" for="turn-seconds">Tiempo por turno (segundos)</label><input class="input" id="turn-seconds" type="number" min="15" max="300" step="5" value="60"><p class="note">Entre 15 segundos y 5 minutos; el turno avanza automáticamente.</p><button class="btn full" id="create">Crear sala en vivo</button><div class="status" id="host-status"></div></article>
     <article class="card"><div class="eyebrow">Estudiantes</div><h2 id="join-title">Unirse al juego</h2><p id="join-description">Entra desde el celular con el código de la pantalla.</p><label class="field-label" for="code">Código</label><input class="input" id="code" maxlength="5" placeholder="ABCDE" autocomplete="one-time-code"><label class="field-label" for="nickname">Elige tu apodo</label><input class="input" id="nickname" maxlength="18" placeholder="Apodo (sin apellidos)" autocomplete="nickname"><button class="btn secondary full" id="join">Entrar a la sala</button><div class="status" id="join-status"></div></article></section>
     <p class="footer">No compartas experiencias personales en el juego. Si necesitas hablar, acércate en privado al adulto designado por tu institución.</p>`;
   document.querySelector('#create').onclick = createRoom;
   document.querySelector('#join').onclick = joinRoom;
+  const modeSelect = document.querySelector('#game-mode');
+  const syncStepSetting = () => {
+    const hidden = modeSelect.value === 'memory';
+    document.querySelector('label[for="step-count"]').classList.toggle('hidden', hidden);
+    document.querySelector('#step-count').classList.toggle('hidden', hidden);
+  };
+  modeSelect.onchange = syncStepSetting; syncStepSetting();
   const input = document.querySelector('#code');
   input.oninput = () => { input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); };
   const invitedCode = new URLSearchParams(location.search).get('code');
@@ -60,7 +67,7 @@ async function createRoom() {
   const button = document.querySelector('#create'); button.disabled = true;
   try {
     const turnSeconds = Math.min(300, Math.max(15, Number(document.querySelector('#turn-seconds').value) || 60));
-    const response = await fetch(`${API}/create`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ teamCount: Number(document.querySelector('#team-count').value), stepsCount: Number(document.querySelector('#step-count').value), turnSeconds }) });
+    const response = await fetch(`${API}/create`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ teamCount: Number(document.querySelector('#team-count').value), stepsCount: Number(document.querySelector('#step-count').value), turnSeconds, mode: document.querySelector('#game-mode').value }) });
     if (!response.ok) throw new Error(`Error al crear sala (${response.status}).`);
     const result = await response.json(); connect(result.code, true, result.token);
   } catch (error) { setMessage(error.message, '#host-status'); button.disabled = false; }
@@ -92,6 +99,11 @@ function startCountdowns() {
     document.querySelectorAll('.live-timer').forEach((element) => {
       const deadline = Number(element.dataset.deadline);
       if (!deadline) { element.textContent = 'Turno sin temporizador'; return; }
+      const previewDeadline = Number(element.dataset.preview);
+      if (previewDeadline && previewDeadline > Date.now()) {
+        element.textContent = `Memoriza el dibujo: ${Math.ceil((previewDeadline - Date.now()) / 1000)} s`;
+        return;
+      }
       const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       element.textContent = left === 0 ? 'Tiempo agotado · avanzando…' : `Tiempo restante: ${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
       element.classList.toggle('timer-urgent', left > 0 && left <= 10);
@@ -118,7 +130,7 @@ function renderLobby() {
     <div class="room-head"><div><div class="eyebrow">Escanea el QR o escribe el código</div><div class="room-code">${escapeHtml(room)}</div><p style="color:var(--muted)">Abre <b>${escapeHtml(location.origin)}</b> en el celular.</p></div>
     <div class="row"><img alt="QR para entrar a la sala" width="110" height="110" style="background:white;border:8px solid white;border-radius:10px" src="${qr}"><button class="btn secondary" id="project">Vista proyector</button><button class="btn" id="start" ${count ? '' : 'disabled'}>Iniciar teléfono</button></div></div>
     <div class="banner"><b>Acuerdo de cuidado:</b> usamos frases ficticias. No compartimos historias personales ni nombres. Si algo preocupa, hablen en privado con el adulto designado.</div>
-    <div class="room-layout"><section class="card"><div class="kicker">Participantes · ${count}</div><div class="team-list" style="margin-top:15px">${teams}</div></section><section class="card"><div class="kicker">Teléfono descompuesto</div><h2 style="margin-top:14px">${state.teamCount} equipos · ${state.stepsCount} pasos</h2><p>Tiempo por turno: <b>${state.turnSeconds} segundos</b>. Una frase pasa de persona a dibujo y de dibujo a interpretación; al final se revela cómo cambió.</p><div class="status">${count === 0 ? 'Conéctate con al menos una persona para empezar.' : count === 1 ? 'Puedes iniciar con un jugador; hará la cadena por turnos.' : 'Inicia cuando los equipos estén listos.'}</div></section></div>`;
+    <div class="room-layout"><section class="card"><div class="kicker">Participantes · ${count}</div><div class="team-list" style="margin-top:15px">${teams}</div></section><section class="card"><div class="kicker">Teléfono descompuesto</div><h2 style="margin-top:14px">${state.teamCount} equipos · ${state.mode === 'memory' ? 'Memorizar dibujo' : `${state.stepsCount} pasos`}</h2><p>${state.mode === 'memory' ? 'Todos los equipos verán el mismo dibujo durante 8 segundos y luego lo replicarán desde la memoria.' : 'Todos los equipos comienzan con la misma frase educativa y la cadena alterna dibujo e interpretación.'} Tiempo por turno: <b>${state.turnSeconds} segundos</b>.</p><div class="status">${count === 0 ? 'Conéctate con al menos una persona para empezar.' : count === 1 ? 'Puedes iniciar con un jugador; hará los turnos sucesivos.' : 'Inicia cuando los equipos estén listos.'}</div></section></div>`;
   document.querySelector('#start').onclick = () => send('start');
   document.querySelector('#project').onclick = () => { const url = new URL(location.href); url.searchParams.set('proyector', '1'); window.open(url, '_blank'); };
 }
@@ -129,24 +141,42 @@ function getMyTurn() {
   const teamPlayers = state.players.filter((player) => player.team === team);
   const nextIndex = chain.step % (teamPlayers.length || 1);
   if (state.mine?.index !== nextIndex) return null;
-  return { team, chain, step: chain.step, kind: chain.step % 2 === 0 ? 'image' : 'text', clue: chain.entries.at(-1) };
+  return { team, chain, step: chain.step, kind: state.mode === 'memory' ? 'image' : (chain.step % 2 === 0 ? 'image' : 'text'), clue: chain.entries.at(-1) };
 }
 function renderRelay() {
   const round = rounds[state.roundIndex];
   if (role === 'host') {
-    const teams = Array.from({ length: state.teamCount || 2 }, (_, team) => `<section class="card"><div class="kicker">Equipo ${team + 1}</div><div class="room-code" style="font-size:52px">${state.chains?.[team]?.step || 0}<span style="font-size:24px;color:var(--muted)"> / ${state.stepsCount} pasos</span></div><div class="timer live-timer" data-deadline="${state.chains?.[team]?.deadlineAt || ''}"></div></section>`).join('');
-    app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Ronda ${state.roundIndex + 1} / ${rounds.length}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(round.title)}</div><h1>El mensaje va pasando…</h1><p>Cada estudiante dibuja o interpreta el aporte anterior desde su celular.</p></section><div class="room-layout">${teams}</div><p class="footer">La frase inicial y los aportes se revelan al completar la cadena.</p>`;
+    const teams = Array.from({ length: state.teamCount || 2 }, (_, team) => `<section class="card"><div class="kicker">Equipo ${team + 1}</div><div class="room-code" style="font-size:52px">${state.chains?.[team]?.step || 0}<span style="font-size:24px;color:var(--muted)"> / ${state.mode === 'memory' ? 1 : state.stepsCount} ${state.mode === 'memory' ? 'réplica' : 'pasos'}</span></div><div class="timer live-timer" data-deadline="${state.chains?.[team]?.deadlineAt || ''}" data-preview="${state.chains?.[team]?.previewUntil || ''}"></div></section>`).join('');
+    app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Ronda ${state.roundIndex + 1} / ${rounds.length}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(round.title)}</div><h1>${state.mode === 'memory' ? '¡A memorizar el dibujo!' : 'El mensaje va pasando…'}</h1><p>${state.mode === 'memory' ? 'Cada equipo verá el mismo modelo por 8 segundos y lo reproducirá desde la memoria.' : 'Cada estudiante dibuja o interpreta el aporte anterior desde su celular.'}</p></section><div class="room-layout">${teams}</div><p class="footer">${state.mode === 'memory' ? 'Las réplicas se revelan juntas al terminar.' : 'La frase inicial y los aportes se revelan al completar la cadena.'}</p>`;
     startCountdowns(); return;
   }
   const turn = getMyTurn();
   if (!turn) {
     const team = state.mine?.team ?? 0; const step = state.chains?.[team]?.step || 0;
-    app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Equipo ${team + 1}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(round.title)}</div><h1>El teléfono está pasando por el equipo.</h1><p>Cuando llegue tu turno, verás el aporte anterior. No lo compartas con otros equipos.</p></section><section class="card center"><div class="status">Esperando el siguiente turno…</div><div class="timer live-timer" data-deadline="${state.chains?.[team]?.deadlineAt || ''}"></div><div class="score" style="margin-top:16px">${step} / ${state.stepsCount}</div></section>`;
+    app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Equipo ${team + 1}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(round.title)}</div><h1>El teléfono está pasando por el equipo.</h1><p>Cuando llegue tu turno, verás el aporte anterior. No lo compartas con otros equipos.</p></section><section class="card center"><div class="status">Esperando el siguiente turno…</div><div class="timer live-timer" data-deadline="${state.chains?.[team]?.deadlineAt || ''}" data-preview="${state.chains?.[team]?.previewUntil || ''}"></div><div class="score" style="margin-top:16px">${step} / ${state.mode === 'memory' ? 1 : state.stepsCount}</div></section>`;
     startCountdowns(); return;
   }
-  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Tu turno · Equipo ${turn.team + 1}</div></header><section class="card"><div class="eyebrow">${escapeHtml(round.title)} · paso ${turn.step + 1} de ${state.stepsCount}</div><div class="timer live-timer" data-deadline="${turn.chain.deadlineAt || ''}"></div><h1 class="prompt">${turn.kind === 'image' ? 'Dibujen en una hoja y suban una foto' : '¿Qué crees que representa el dibujo?'}</h1><div class="feedback">${turn.clue?.kind === 'image' ? `<img alt="Dibujo anterior" src="${turn.clue.content}" style="display:block;max-width:100%;max-height:260px;margin:auto;border-radius:12px">` : `<b>Mensaje recibido:</b><br>${escapeHtml(turn.clue?.content || round.seed)}`}</div>
+  const memoryMode = state.mode === 'memory';
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Tu turno · Equipo ${turn.team + 1}</div></header><section class="card"><div class="eyebrow">${escapeHtml(round.title)}${memoryMode ? ' · replica de memoria' : ` · paso ${turn.step + 1} de ${state.stepsCount}`}</div><div class="timer live-timer" data-deadline="${turn.chain.deadlineAt || ''}" data-preview="${turn.chain.previewUntil || ''}"></div>${memoryMode ? `<div class="memory-preview" id="memory-preview"><div class="kicker">Memoriza el modelo · <span class="memory-seconds">8</span> segundos</div><img alt="Dibujo modelo para memorizar" src="${turn.clue?.content || ''}" style="display:block;max-width:100%;max-height:300px;margin:12px auto;border-radius:12px"></div><div class="feedback hidden" id="memory-hidden">¡Tiempo! Replica el dibujo en una hoja sin volver a mirar el modelo.</div>` : ''}<h1 class="prompt">${memoryMode ? 'Reproduzcan el dibujo en una hoja' : turn.kind === 'image' ? 'Dibujen en una hoja y suban una foto' : '¿Qué crees que representa el dibujo?'}</h1>${memoryMode ? '' : `<div class="feedback">${turn.clue?.kind === 'image' ? `<img alt="Dibujo anterior" src="${turn.clue.content}" style="display:block;max-width:100%;max-height:260px;margin:auto;border-radius:12px">` : `<b>Mensaje recibido:</b><br>${escapeHtml(turn.clue?.content || round.seed)}`}</div>`}
     ${turn.kind === 'image' ? `<label class="field-label" for="photo">Toma una foto o elige una imagen</label><input class="input" id="photo" type="file" accept="image/*" capture="environment"><p class="note">Fotografía solo la hoja. Evita que aparezcan caras, nombres, uniformes o datos personales.</p><img id="photo-preview" class="hidden" alt="Vista previa del dibujo" style="display:block;max-width:100%;max-height:300px;margin:14px auto;border-radius:12px"><button class="btn full" id="submit" disabled>Preparar foto…</button><div class="status" id="upload-status"></div>` : `<label class="field-label" for="guess">Tu interpretación (máximo 140 caracteres)</label><textarea id="guess" class="input" maxlength="140" rows="3" placeholder="Escribe una frase breve…"></textarea><button class="btn full" id="submit">Pasar frase</button>`}<p class="footer">No escribas nombres ni experiencias personales.</p></section>`;
   const submit = (kind, content) => send('submit', { content, kind, team: turn.team });
+  if (memoryMode) {
+    const previewUntil = turn.chain.previewUntil == null ? 0 : Number(turn.chain.previewUntil);
+    const memoryInterval = setInterval(() => {
+      const seconds = Math.max(0, Math.ceil((previewUntil - Date.now()) / 1000));
+      const label = document.querySelector('.memory-seconds');
+      if (label) label.textContent = String(seconds);
+      if (seconds === 0) {
+        clearInterval(memoryInterval);
+        document.querySelector('#memory-preview')?.classList.add('hidden');
+        document.querySelector('#memory-hidden')?.classList.remove('hidden');
+      }
+    }, 200);
+    if (!previewUntil || previewUntil <= Date.now()) {
+      document.querySelector('#memory-preview')?.classList.add('hidden');
+      document.querySelector('#memory-hidden')?.classList.remove('hidden');
+    }
+  }
   if (turn.kind === 'image') {
     const photoInput = document.querySelector('#photo');
     const preview = document.querySelector('#photo-preview');
@@ -203,9 +233,9 @@ async function compressPhoto(file) {
 }
 function renderReveal() {
   const entries = state.chains || [];
-  const tile = (entry, index) => `<div class="card" style="min-width:190px;max-width:240px"><div class="kicker">${index === 0 ? 'Frase inicial' : `Paso ${index}`}</div>${entry.kind === 'image' ? `<img alt="Dibujo de la cadena" src="${entry.content}" style="width:100%;border-radius:10px;margin-top:10px">` : `<p style="margin-top:12px;color:white">${escapeHtml(entry.content)}</p>`}</div>`;
+  const tile = (entry, index) => `<div class="card" style="min-width:190px;max-width:240px"><div class="kicker">${state.mode === 'memory' ? (index === 0 ? 'Dibujo modelo' : 'Réplica del equipo') : (index === 0 ? 'Frase inicial' : `Paso ${index}`)}</div>${entry.kind === 'image' ? `<img alt="Dibujo de la cadena" src="${entry.content}" style="width:100%;border-radius:10px;margin-top:10px">` : `<p style="margin-top:12px;color:white">${escapeHtml(entry.content)}</p>`}</div>`;
   const teamCount = state.teamCount || 2;
-  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Revelación · ronda ${state.roundIndex + 1}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(rounds[state.roundIndex].title)}</div><h1>¿Cómo cambió el mensaje?</h1><p>Comparen la idea inicial con las interpretaciones. La actividad sirve para conversar, no para evaluar experiencias personales.</p></section>
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Revelación · ronda ${state.roundIndex + 1}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(rounds[state.roundIndex].title)}</div><h1>${state.mode === 'memory' ? '¿Qué tan parecidas quedaron las réplicas?' : '¿Cómo cambió el mensaje?'}</h1><p>${state.mode === 'memory' ? 'Comparen cada réplica con el modelo y conversen sobre qué detalles fueron fáciles de recordar.' : 'Comparen la idea inicial con las interpretaciones. La actividad sirve para conversar, no para evaluar experiencias personales.'}</p></section>
     ${Array.from({ length: teamCount }, (_, team) => `<section class="card" style="margin-bottom:18px"><div class="kicker" style="margin-bottom:14px">Equipo ${team + 1}</div><div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;align-items:stretch">${(entries[team]?.entries || []).map(tile).join('<div style="align-self:center;color:var(--lime);font-size:28px">→</div>')}</div></section>`).join('')}
     <section class="banner"><b>Conversación final:</b> ¿qué parte de la idea se mantuvo? ¿Qué acción segura recuerdan y a qué adulto podrían acudir? No compartan experiencias personales en público.</section><div class="team-list">${Array.from({ length: teamCount }, (_, team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div>${role==='host'?'<div class="center" style="margin-top:22px"><button class="btn" id="next">Siguiente cadena</button></div>':''}`;
   document.querySelector('#next')?.addEventListener('click', () => send('next'));
