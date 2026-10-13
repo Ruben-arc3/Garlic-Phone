@@ -310,7 +310,7 @@ function renderPictionary() {
   const timer = `<div class="timer live-timer" data-deadline="${game.deadlineAt}"></div>`;
   const scoreboard = `<aside class="pictionary-score-panel"><div class="pictionary-panel-title">Equipos <span>puntos</span></div>${game.teams.map((team) => `<div class="pictionary-score-row"><span><b>${team + 1}</b> Equipo ${team + 1}</span><strong>${state.scores?.[team] || 0}</strong></div>`).join('')}</aside>`;
   let drawingTools = '';
-  if (isDrawer) drawingTools = `<section class="drawing-tools"><div class="pictionary-secret">Tu palabra: <strong>${escapeHtml(state.pictionaryWord)}</strong></div><p>Dibújala sin escribir letras ni la palabra. Puedes subir una foto de fondo.</p><label class="field-label" for="drawing-photo">Foto de fondo (opcional)</label><input class="input" id="drawing-photo" type="file" accept="image/*" capture="environment"><div class="tool-row"><label>Color <input id="brush-color" type="color" value="#20233a"></label><label>Grosor <input id="brush-size" type="range" min="2" max="18" value="7"></label><button class="btn secondary" id="clear-drawing">Borrar trazos</button><button class="btn" id="finish-drawing">Terminar turno</button></div><div class="status" id="drawing-status"></div></section>`;
+  if (isDrawer) drawingTools = `<section class="drawing-tools"><div class="pictionary-secret">Tu palabra: <strong>${escapeHtml(state.pictionaryWord)}</strong></div><p>Dibújala sin escribir letras ni la palabra. Puedes dibujar en el tablero o subir una foto.</p><label class="field-label" for="drawing-photo">Foto de la hoja (opcional)</label><input class="input" id="drawing-photo" type="file" accept="image/*" capture="environment"><label class="paper-clean-option"><input id="remove-paper-background" type="checkbox" checked> Quitar papel claro y conservar los trazos de colores</label><div class="tool-row"><label>Color <input id="brush-color" type="color" value="#20233a"></label><label>Grosor <input id="brush-size" type="range" min="2" max="18" value="7"></label><button class="btn secondary" id="clear-drawing">Borrar trazos</button><button class="btn" id="finish-drawing">Terminar turno</button></div><div class="status" id="drawing-status"></div></section>`;
   else if (isArtistTeam) drawingTools = `<div class="pictionary-team-note">${escapeHtml(artist?.name || 'Tu equipo')} está dibujando. Ayúdale a pensar cómo representar la palabra.</div>`;
   let chatControls = '';
   if (role === 'player' && !isArtistTeam) chatControls = `<div class="pictionary-chat-compose"><input id="guess-input" class="input" maxlength="50" placeholder="Escribe tu respuesta"><button class="btn" id="send-guess">Enviar</button></div><div class="chat-help" id="guess-ready"></div><div class="chat-help" id="guess-status"></div>`;
@@ -370,8 +370,9 @@ function bindPictionaryDrawing() {
   document.querySelector('#drawing-photo').onchange = async (event) => {
     const file = event.target.files?.[0]; if (!file) return;
     if (!file.type.startsWith('image/')) { setMessage('Selecciona una imagen válida.', '#drawing-status'); return; }
-    setMessage('Preparando imagen de fondo…', '#drawing-status');
-    try { send('pictionaryBackground', { content: await compressPhoto(file) }); setMessage('Imagen de fondo enviada. Ya puedes dibujar encima.', '#drawing-status'); }
+    const removePaper = document.querySelector('#remove-paper-background').checked;
+    setMessage(removePaper ? 'Quitando el papel claro y preparando la foto…' : 'Preparando la foto…', '#drawing-status');
+    try { send('pictionaryBackground', { content: await compressPictionaryPhoto(file, removePaper) }); setMessage(removePaper ? 'Foto lista: papel claro transparente; los colores se conservan. Ya puedes dibujar encima.' : 'Foto original enviada. Ya puedes dibujar encima.', '#drawing-status'); }
     catch { setMessage('No se pudo preparar esa imagen. Prueba con otra.', '#drawing-status'); }
   };
 }
@@ -441,6 +442,47 @@ async function compressPhoto(file) {
     context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     result = canvas.toDataURL('image/jpeg', 0.58);
+    if (result.length <= 480000) break;
+  }
+  if (bitmap.close) bitmap.close();
+  if (result.length > 480000) throw new Error('Imagen demasiado grande');
+  return result;
+}
+async function compressPictionaryPhoto(file, removePaper) {
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); }
+  catch {
+    bitmap = await new Promise((resolve, reject) => {
+      const image = new Image(); const objectUrl = URL.createObjectURL(file);
+      image.onload = () => { URL.revokeObjectURL(objectUrl); resolve(image); };
+      image.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Imagen inválida')); };
+      image.src = objectUrl;
+    });
+  }
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  let result = '';
+  for (const maxSide of [1280, 960, 720, 540, 360]) {
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    if (removePaper) {
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+      const data = pixels.data;
+      for (let index = 0; index < data.length; index += 4) {
+        const red = data[index], green = data[index + 1], blue = data[index + 2];
+        const brightness = (red + green + blue) / 3;
+        const chroma = Math.max(red, green, blue) - Math.min(red, green, blue);
+        const paperAlpha = Math.max(0, Math.min(1, (232 - brightness) / 55));
+        const colorProtection = Math.max(0, Math.min(1, (chroma - 10) / 22));
+        const alpha = Math.max(paperAlpha, colorProtection);
+        data[index + 3] = Math.round(data[index + 3] * alpha);
+      }
+      context.putImageData(pixels, 0, 0);
+    }
+    result = canvas.toDataURL(removePaper ? 'image/png' : 'image/jpeg', 0.64);
     if (result.length <= 480000) break;
   }
   if (bitmap.close) bitmap.close();

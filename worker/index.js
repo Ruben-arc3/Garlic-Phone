@@ -260,7 +260,7 @@ export class Room {
   async acceptPictionaryBackground(playerId, content) {
     const game = this.state.pictionary;
     if (!game || game.drawerId !== playerId || game.deadlineAt <= Date.now()) return;
-    if (typeof content !== 'string' || !/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(content) || content.length > 480000) return;
+    if (typeof content !== 'string' || !/^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(content) || content.length > 480000) return;
     game.backgroundKey = `pictionary:background:${game.turnIndex}`;
     await this.ctx.storage.put(game.backgroundKey, content);
     this.startPictionaryHints(game);
