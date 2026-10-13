@@ -7,7 +7,7 @@ const rounds = [
   { title: 'Apoyo entre compañeros', seed: 'Escucha sin juzgar y acompaña a tu amigo a buscar ayuda de una persona adulta segura.' },
   { title: 'Cuidado en internet', seed: 'No compartas una imagen por presión. Guarda evidencia si es seguro y pide apoyo.' },
 ];
-let socket = null, state = null, room = '', role = '', timerInterval = null, boardRenderToken = 0;
+let socket = null, state = null, room = '', role = '', timerInterval = null, boardRenderToken = 0, pictionaryHistory = [];
 const playerId = localStorage.getItem('voces-player') || crypto.randomUUID();
 localStorage.setItem('voces-player', playerId);
 const escapeHtml = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
@@ -20,6 +20,7 @@ function setMessage(text, selector = '.status') {
   if (element) element.textContent = text;
 }
 function connect(code, asHost, token = '') {
+  pictionaryHistory = [];
   room = code.toUpperCase(); role = asHost ? 'host' : 'player';
   const url = new URL(`/room/${room}`, API);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -30,6 +31,13 @@ function connect(code, asHost, token = '') {
     const message = JSON.parse(event.data);
     if (message.type === 'state') {
       const previousPhase = state?.phase;
+      if (previousPhase === 'pictionaryReveal' && ['pictionary', 'end'].includes(message.state.phase)) {
+        const previousCanvas = document.querySelector('#drawing-board');
+        if (state.pictionary?.result && previousCanvas) {
+          try { pictionaryHistory.push({ ...state.pictionary.result, image: previousCanvas.toDataURL('image/jpeg', 0.78) }); }
+          catch { /* Keep the reveal history moving if a browser cannot export the canvas. */ }
+        }
+      }
       state = message.state;
       if (previousPhase === 'pictionary' && state.phase === 'pictionary' && document.querySelector('#drawing-board')) {
         drawPictionaryBoard(state.pictionaryBoard);
@@ -343,8 +351,9 @@ function drawStrokeOnBoard(stroke) {
 function renderPictionaryReveal() {
   const game = state.pictionary; const result = game.result || {};
   const won = result.winnerTeam !== null && result.winnerTeam !== undefined;
-  const board = `<canvas id="drawing-board" width="900" height="560" aria-label="Dibujo de la ronda" style="display:block;width:100%;max-height:62vh;aspect-ratio:900/560;background:white;border-radius:14px"></canvas>`;
-  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Palabra revelada · ${game.turnIndex + 1} / ${game.teams.length}</div></header><section class="hero"><div class="eyebrow">Dibujo de campaña</div><h1>${escapeHtml(result.word || '')}</h1><p>${won ? `¡Equipo ${result.winnerTeam + 1} adivinó! Equipo ${result.drawerTeam + 1} dibujó.` : `Dibujó el Equipo ${result.drawerTeam + 1}. ${result.reason === 'timeout' ? 'Se acabó el tiempo.' : 'No hubo respuesta correcta.'}`}</p></section><section class="card">${board}</section><div class="team-list" style="margin-top:16px">${game.teams.map((team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div>${role === 'host' ? '<div class="center" style="margin-top:20px"><button class="btn" id="pictionary-next">Siguiente palabra</button></div>' : '<p class="footer">Espera a que el facilitador inicie el siguiente turno.</p>'}`;
+  const board = `<canvas id="drawing-board" width="900" height="560" aria-label="Dibujo de la ronda" class="drawing-board cascade-current"></canvas>`;
+  const previousBoards = pictionaryHistory.map((item, index) => `<article class="cascade-card" style="--cascade-order:${index}"><div class="cascade-label">Turno ${index + 1} · Equipo ${item.drawerTeam + 1}</div><img class="cascade-image" src="${item.image}" alt="Dibujo anterior: ${escapeHtml(item.word)}"><div class="cascade-caption">${escapeHtml(item.word)}</div></article>`).join('');
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Palabra revelada · ${game.turnIndex + 1} / ${game.teams.length}</div></header><section class="hero"><div class="eyebrow">Dibujo de campaña</div><h1>${escapeHtml(result.word || '')}</h1><p>${won ? `¡Equipo ${result.winnerTeam + 1} adivinó! Equipo ${result.drawerTeam + 1} dibujó.` : `Dibujó el Equipo ${result.drawerTeam + 1}. ${result.reason === 'timeout' ? 'Se acabó el tiempo.' : 'No hubo respuesta correcta.'}`}</p></section><section class="cascade-section"><div class="cascade-heading">${pictionaryHistory.length ? 'Mira cómo va creciendo la galería' : 'Dibujo de este turno'} <span>${game.turnIndex + 1} de ${game.teams.length}</span></div><div class="cascade-gallery">${previousBoards}<article class="cascade-card cascade-card-current" style="--cascade-order:${pictionaryHistory.length}"><div class="cascade-label">Turno ${game.turnIndex + 1} · Equipo ${result.drawerTeam + 1}</div>${board}<div class="cascade-caption">${escapeHtml(result.word || '')}</div></article></div></section><div class="team-list" style="margin-top:16px">${game.teams.map((team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div>${role === 'host' ? '<div class="center" style="margin-top:20px"><button class="btn" id="pictionary-next">Siguiente palabra</button></div>' : '<p class="footer">Espera a que el facilitador inicie el siguiente turno.</p>'}`;
   drawPictionaryBoard(state.pictionaryBoard);
   document.querySelector('#pictionary-next')?.addEventListener('click', () => send('pictionaryNext'));
 }
@@ -377,10 +386,10 @@ async function compressPhoto(file) {
 }
 function renderReveal() {
   const entries = state.chains || [];
-  const tile = (entry, index) => `<div class="card" style="min-width:190px;max-width:240px"><div class="kicker">${state.mode === 'memory' ? (index === 0 ? 'Dibujo modelo' : 'Réplica del equipo') : (index === 0 ? 'Frase inicial' : `Paso ${index}`)}</div>${entry.kind === 'image' ? `<img alt="Dibujo de la cadena" src="${entry.content}" style="width:100%;border-radius:10px;margin-top:10px">` : `<p style="margin-top:12px;color:white">${escapeHtml(entry.content)}</p>`}</div>`;
+  const tile = (entry, index) => `<article class="cascade-card" style="--cascade-order:${index}"><div class="cascade-label">${state.mode === 'memory' ? (index === 0 ? 'Dibujo modelo' : `Réplica ${index}`) : (index === 0 ? 'Frase inicial' : `Paso ${index}`)}</div>${entry.kind === 'image' ? `<img class="cascade-image" alt="${state.mode === 'memory' ? `Dibujo de la cadena, paso ${index + 1}` : 'Dibujo de la cadena'}" src="${entry.content}">` : `<div class="cascade-text">${escapeHtml(entry.content)}</div>`}</article>`;
   const teamCount = state.teamCount || 2;
   app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Revelación · ronda ${state.roundIndex + 1}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(rounds[state.roundIndex].title)}</div><h1>${state.mode === 'memory' ? '¿Qué tan parecidas quedaron las réplicas?' : '¿Cómo cambió el mensaje?'}</h1><p>${state.mode === 'memory' ? 'Comparen cada réplica con el modelo y conversen sobre qué detalles fueron fáciles de recordar.' : 'Comparen la idea inicial con las interpretaciones. La actividad sirve para conversar, no para evaluar experiencias personales.'}</p></section>
-    ${Array.from({ length: teamCount }, (_, team) => `<section class="card" style="margin-bottom:18px"><div class="kicker" style="margin-bottom:14px">Equipo ${team + 1}</div><div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;align-items:stretch">${(entries[team]?.entries || []).map(tile).join('<div style="align-self:center;color:var(--lime);font-size:28px">→</div>')}</div></section>`).join('')}
+    ${Array.from({ length: teamCount }, (_, team) => `<section class="cascade-section"><div class="cascade-heading">Equipo ${team + 1}<span>${(entries[team]?.entries || []).filter((entry) => entry.kind === 'image').length} dibujos</span></div><div class="cascade-gallery">${(entries[team]?.entries || []).map((entry, index) => `${index ? '<div class="cascade-arrow" aria-hidden="true">→</div>' : ''}${tile(entry, index)}`).join('')}</div></section>`).join('')}
     <section class="banner"><b>Conversación final:</b> ¿qué parte de la idea se mantuvo? ¿Qué acción segura recuerdan y a qué adulto podrían acudir? No compartan experiencias personales en público.</section><div class="team-list">${Array.from({ length: teamCount }, (_, team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div>${role==='host'?'<div class="center" style="margin-top:22px"><button class="btn" id="next">Siguiente cadena</button></div>':''}`;
   document.querySelector('#next')?.addEventListener('click', () => send('next'));
 }
