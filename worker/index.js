@@ -130,7 +130,7 @@ export class Room {
     } else if (message.type === 'pictionaryStroke' && !isHost && this.state.phase === 'pictionary') {
       const stroke = this.acceptPictionaryStroke(meta.playerId, message.stroke);
       if (!stroke) return;
-      await this.save();
+      await this.syncAlarm(); await this.save();
       for (const peer of this.ctx.getWebSockets()) { try { peer.send(JSON.stringify({ type: 'pictionaryStroke', stroke })); } catch { /* socket already closed */ } }
       return;
     } else if (message.type === 'pictionaryClear' && !isHost && this.state.phase === 'pictionary') {
@@ -148,8 +148,9 @@ export class Room {
     } else if (message.type === 'pictionaryNext' && isHost && this.state.phase === 'pictionaryReveal') {
       await this.clearPictionaryBackground();
       const game = this.state.pictionary; game.turnIndex++;
-      if (game.turnIndex >= game.teams.length) { this.state.phase = 'end'; game.result = null; }
-      else { this.state.phase = 'pictionary'; this.beginPictionaryTurn(); }
+      this.state.phase = 'pictionary'; this.beginPictionaryTurn();
+    } else if (message.type === 'pictionaryEnd' && isHost && this.state.phase === 'pictionaryReveal') {
+      this.state.phase = 'end';
     } else if (message.type === 'next' && isHost && this.state.phase === 'reveal') {
       await this.clearPhotos(); this.state.roundIndex++;
       if (this.state.roundIndex >= SEEDS.length) this.state.phase = 'end';
@@ -220,7 +221,7 @@ export class Room {
   }
   beginPictionaryTurn() {
     const game = this.state.pictionary;
-    const drawerTeam = game.teams[game.turnIndex];
+    const drawerTeam = game.teams[game.turnIndex % game.teams.length];
     const players = this.state.players.filter((player) => player.team === drawerTeam);
     game.drawerTeam = drawerTeam;
     game.drawerId = players[game.turnIndex % players.length]?.id;
@@ -228,8 +229,13 @@ export class Room {
     const now = Date.now();
     game.deadlineAt = now + this.state.turnSeconds * 1000;
     game.hintLevel = 0;
-    game.nextHintAt = now + Math.max(1000, Math.floor(this.state.turnSeconds * 1000 / 6));
+    game.hintStartedAt = null; game.nextHintAt = null;
     game.backgroundKey = null; game.strokes = []; game.guessedTeams = []; game.guessCount = 0; game.result = null;
+  }
+  startPictionaryHints(game) {
+    if (game.hintStartedAt) return;
+    game.hintStartedAt = Date.now();
+    game.nextHintAt = game.hintStartedAt + Math.max(1000, Math.floor(this.state.turnSeconds * 1000 / 6));
   }
   pictionaryHint(word, level) {
     const letters = [...word].map((char, index) => /[\p{L}\p{N}]/u.test(char) ? index : -1).filter((index) => index >= 0);
@@ -243,6 +249,7 @@ export class Room {
     if (typeof content !== 'string' || !/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(content) || content.length > 480000) return;
     game.backgroundKey = `pictionary:background:${game.turnIndex}`;
     await this.ctx.storage.put(game.backgroundKey, content);
+    this.startPictionaryHints(game);
   }
   acceptPictionaryStroke(playerId, stroke) {
     const game = this.state.pictionary;
@@ -250,6 +257,7 @@ export class Room {
     if (!stroke || !/^#[0-9a-f]{6}$/i.test(stroke.color) || !Number.isFinite(stroke.width) || stroke.width < 0.001 || stroke.width > 0.04) return;
     if (!Array.isArray(stroke.points) || stroke.points.length < 2 || stroke.points.length > 80) return;
     if (!stroke.points.every((point) => Array.isArray(point) && point.length === 2 && point.every((value) => Number.isFinite(value) && value >= 0 && value <= 1))) return;
+    this.startPictionaryHints(game);
     game.strokes.push({ color: stroke.color, width: stroke.width, points: stroke.points });
     return game.strokes.at(-1);
   }
@@ -260,7 +268,7 @@ export class Room {
   acceptPictionaryGuess(playerId, guess) {
     const game = this.state.pictionary;
     const player = this.state.players.find((item) => item.id === playerId);
-    if (!game || !player || player.team === game.drawerTeam || game.deadlineAt <= Date.now()) return false;
+    if (!game || !player || player.team === game.drawerTeam || game.deadlineAt <= Date.now() || (!game.backgroundKey && !game.strokes.length)) return false;
     game.guessCount++;
     const normalize = (value) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
     if (normalize(guess) !== normalize(game.word)) return false;
@@ -319,7 +327,7 @@ export class Room {
   async syncAlarm() {
     if (this.state.phase === 'pictionary' && this.state.pictionary?.deadlineAt) {
       const game = this.state.pictionary;
-      const nextAlarm = game.hintLevel < 6 && game.nextHintAt ? Math.min(game.deadlineAt, game.nextHintAt) : game.deadlineAt;
+      const nextAlarm = game.nextHintAt ? Math.min(game.deadlineAt, game.nextHintAt) : game.deadlineAt;
       await this.ctx.storage.setAlarm(nextAlarm); return;
     }
     if (this.state.phase !== 'relay') { await this.ctx.storage.deleteAlarm(); return; }
@@ -418,7 +426,8 @@ export class Room {
           ? { teams: pictionary.teams, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: pictionary.result }
           : { teams: pictionary.teams, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: null };
         if (isReveal || (meta?.role === 'player' && meta.playerId === pictionary.drawerId)) pictionaryWord = pictionary.word;
-        if (!isReveal && (meta?.role === 'host' || (mine && mine.team !== pictionary.drawerTeam))) pictionaryHint = this.pictionaryHint(pictionary.word, pictionary.hintLevel || 0);
+        const hasDrawing = Boolean(pictionary.backgroundKey || pictionary.strokes.length);
+        if (!isReveal && hasDrawing && (meta?.role === 'host' || (mine && mine.team !== pictionary.drawerTeam))) pictionaryHint = this.pictionaryHint(pictionary.word, pictionary.hintLevel || 0);
         pictionaryBoard = {
           background: pictionary.backgroundKey ? await this.ctx.storage.get(pictionary.backgroundKey) || '' : '',
           strokes: pictionary.strokes,

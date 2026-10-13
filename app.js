@@ -34,7 +34,7 @@ function connect(code, asHost, token = '') {
       if (previousPhase === 'pictionaryReveal' && ['pictionary', 'end'].includes(message.state.phase)) {
         const previousCanvas = document.querySelector('#drawing-board');
         if (state.pictionary?.result && previousCanvas) {
-          try { pictionaryHistory.push({ ...state.pictionary.result, image: previousCanvas.toDataURL('image/jpeg', 0.78) }); }
+          try { pictionaryHistory.push({ ...state.pictionary.result, turn: state.pictionary.turnIndex + 1, cycle: Math.floor(state.pictionary.turnIndex / state.pictionary.teams.length) + 1, image: previousCanvas.toDataURL('image/jpeg', 0.78) }); }
           catch { /* Keep the reveal history moving if a browser cannot export the canvas. */ }
         }
       }
@@ -43,6 +43,7 @@ function connect(code, asHost, token = '') {
         drawPictionaryBoard(state.pictionaryBoard);
         const count = document.querySelector('#guess-count'); if (count && state.pictionary) count.textContent = `${state.pictionary.guessCount} intentos`;
         const hint = document.querySelector('#pictionary-hint'); if (hint) hint.textContent = state.pictionaryHint ? `Pista: ${state.pictionaryHint}` : '';
+        syncPictionaryGuessAvailability();
         return;
       }
       render();
@@ -50,6 +51,7 @@ function connect(code, asHost, token = '') {
     if (message.type === 'pictionaryStroke') {
       if (state?.pictionaryBoard && message.stroke) state.pictionaryBoard.strokes.push(message.stroke);
       drawStrokeOnBoard(message.stroke);
+      syncPictionaryGuessAvailability();
     }
     if (message.type === 'pictionaryStatus' && state?.pictionary) {
       state.pictionary.guessCount = message.guessCount;
@@ -159,7 +161,7 @@ function renderLobby() {
     <div class="room-head"><div><div class="eyebrow">Escanea el QR o escribe el código</div><div class="room-code">${escapeHtml(room)}</div><p style="color:var(--muted)">Abre <b>${escapeHtml(location.origin)}</b> en el celular.</p></div>
     <div class="row"><img alt="QR para entrar a la sala" width="110" height="110" style="background:white;border:8px solid white;border-radius:10px" src="${qr}"><button class="btn secondary" id="project">Vista proyector</button><button class="btn" id="start" ${count ? '' : 'disabled'}>Iniciar teléfono</button></div></div>
     <div class="banner"><b>Acuerdo de cuidado:</b> usamos frases ficticias. No compartimos historias personales ni nombres. Si algo preocupa, hablen en privado con el adulto designado.</div>
-    <div class="room-layout"><section class="card"><div class="kicker">Participantes · ${count}</div><div class="team-list" style="margin-top:15px">${teams}</div></section><section class="card"><div class="kicker">${state.mode === 'pictionary' ? 'Dibuja y adivina' : 'Teléfono descompuesto'}</div><h2 style="margin-top:14px">${state.teamCount} equipos · ${state.mode === 'memory' ? 'Memorizar dibujo' : state.mode === 'pictionary' ? 'Pinturillo de prevención' : `${state.stepsCount} pasos`}</h2><p>${state.mode === 'memory' ? 'Cada equipo recibe un dibujo distinto, lo memoriza, lo replica y pasa la copia al siguiente equipo hasta completar la rotación.' : state.mode === 'pictionary' ? 'Cada equipo tendrá un turno para dibujar una palabra privada de la campaña. Los demás equipos intentan adivinarla; el dibujo aparece en vivo en el proyector. Quien dibuja puede subir una foto como fondo y trazar encima.' : 'Todos los equipos comienzan con la misma frase educativa y la cadena alterna dibujo e interpretación.'} Tiempo por turno: <b>${state.turnSeconds} segundos</b>.</p><div class="status">${count === 0 ? 'Conéctate con al menos una persona para empezar.' : count === 1 ? 'Puedes iniciar con un jugador; hará los turnos sucesivos. Para adivinar, se recomienda que haya otro equipo con participantes.' : 'Inicia cuando los equipos estén listos.'}</div></section></div>`;
+    <div class="room-layout"><section class="card"><div class="kicker">Participantes · ${count}</div><div class="team-list" style="margin-top:15px">${teams}</div></section><section class="card"><div class="kicker">${state.mode === 'pictionary' ? 'Dibuja y adivina' : 'Teléfono descompuesto'}</div><h2 style="margin-top:14px">${state.teamCount} equipos · ${state.mode === 'memory' ? 'Memorizar dibujo' : state.mode === 'pictionary' ? 'Pinturillo de prevención' : `${state.stepsCount} pasos`}</h2><p>${state.mode === 'memory' ? 'Cada equipo recibe un dibujo distinto, lo memoriza, lo replica y pasa la copia al siguiente equipo hasta completar la rotación.' : state.mode === 'pictionary' ? 'Un equipo dibuja una palabra privada mientras los demás la escriben para adivinarla. Después pasa al siguiente equipo; el juego continúa hasta que el facilitador lo termine. Se revelan pistas con letras y el dibujo aparece en vivo en el proyector.' : 'Todos los equipos comienzan con la misma frase educativa y la cadena alterna dibujo e interpretación.'} Tiempo por turno: <b>${state.turnSeconds} segundos</b>.</p><div class="status">${count === 0 ? 'Conéctate con al menos una persona para empezar.' : count === 1 ? 'Puedes iniciar con un jugador; hará los turnos sucesivos. Para adivinar, se recomienda que haya otro equipo con participantes.' : 'Inicia cuando los equipos estén listos.'}</div></section></div>`;
   document.querySelector('#start').onclick = () => send('start');
   document.querySelector('#project').onclick = () => { const url = new URL(location.href); url.searchParams.set('proyector', '1'); window.open(url, '_blank'); };
 }
@@ -261,14 +263,15 @@ function renderPictionary() {
   const isDrawer = role === 'player' && game.drawerTeam === state.mine?.team && state.pictionaryWord;
   const isArtistTeam = role === 'player' && game.drawerTeam === state.mine?.team;
   const artist = state.players.find((player) => player.id === game.drawerId);
-  const header = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Pinturillo · turno ${game.turnIndex + 1} / ${game.teams.length}</div></header>`;
+  const cycle = Math.floor(game.turnIndex / game.teams.length) + 1;
+  const header = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Pinturillo · vuelta ${cycle} · dibuja Equipo ${game.drawerTeam + 1}</div></header>`;
   const board = `<canvas id="drawing-board" width="900" height="560" aria-label="Tablero de dibujo" style="display:block;width:100%;max-height:62vh;aspect-ratio:900/560;background:white;border-radius:14px;touch-action:none"></canvas>`;
   const timer = `<div class="timer live-timer" data-deadline="${game.deadlineAt}"></div>`;
   let controls = '';
   if (role === 'player' && isDrawer) {
     controls = `<section class="card" style="margin-top:16px"><div class="eyebrow">Tu palabra</div><h1 class="prompt">${escapeHtml(state.pictionaryWord)}</h1><p>Dibújala sin escribir letras ni la palabra. Puedes subir una imagen como fondo y dibujar encima.</p><div class="drawing-tools"><label class="field-label" for="drawing-photo">Imagen de fondo (opcional)</label><input class="input" id="drawing-photo" type="file" accept="image/*" capture="environment"><p class="note">Usa una imagen sin caras, nombres ni datos personales.</p><div class="tool-row"><label>Color <input id="brush-color" type="color" value="#20233a"></label><label>Grosor <input id="brush-size" type="range" min="2" max="18" value="7"></label><button class="btn secondary" id="clear-drawing">Borrar trazos</button></div><div class="row"><button class="btn full" id="finish-drawing">Terminar turno</button></div><div class="status" id="drawing-status"></div></div></section>`;
   } else if (role === 'player' && !isArtistTeam) {
-    controls = `<section class="card" style="margin-top:16px"><div class="eyebrow">Adivina en equipo</div><p>Escribe la palabra que representa el dibujo. Si cuesta adivinarla, se irán revelando letras como pista.</p><div class="row"><input id="guess-input" class="input" maxlength="50" placeholder="Escribe tu respuesta"><button class="btn" id="send-guess">Enviar</button></div><div class="status" id="guess-status"></div></section>`;
+    controls = `<section class="card" style="margin-top:16px"><div class="eyebrow">Adivina en equipo</div><p>Escribe la palabra que representa el dibujo. Si cuesta adivinarla, se irán revelando letras como pista.</p><div class="row"><input id="guess-input" class="input" maxlength="50" placeholder="Escribe tu respuesta"><button class="btn" id="send-guess">Enviar</button></div><div class="status" id="guess-ready"></div><div class="status" id="guess-status"></div></section>`;
   } else if (role === 'player') {
     controls = `<section class="card center" style="margin-top:16px"><div class="status">${escapeHtml(artist?.name || 'Tu equipo')} está dibujando. Ayúdale con ideas, pero no envíes respuestas.</div></section>`;
   }
@@ -284,8 +287,18 @@ function renderPictionary() {
     };
     document.querySelector('#send-guess').onclick = sendGuess;
     input.onkeydown = (event) => { if (event.key === 'Enter') sendGuess(); };
+    syncPictionaryGuessAvailability();
   }
   startCountdowns();
+}
+function syncPictionaryGuessAvailability() {
+  const input = document.querySelector('#guess-input'); const button = document.querySelector('#send-guess');
+  if (!input || !button) return;
+  const board = state?.pictionaryBoard;
+  const ready = Boolean(board?.background || board?.strokes?.length);
+  input.disabled = !ready; button.disabled = !ready;
+  const status = document.querySelector('#guess-ready');
+  if (status) status.textContent = ready ? '¡Ya pueden adivinar! Gana el primer equipo que escriba la palabra.' : 'Esperando el primer trazo o la foto del equipo dibujante…';
 }
 function bindPictionaryDrawing() {
   const canvas = document.querySelector('#drawing-board'); const context = canvas.getContext('2d');
@@ -351,12 +364,14 @@ function drawStrokeOnBoard(stroke) {
 }
 function renderPictionaryReveal() {
   const game = state.pictionary; const result = game.result || {};
+  const cycle = Math.floor(game.turnIndex / game.teams.length) + 1;
   const won = result.winnerTeam !== null && result.winnerTeam !== undefined;
   const board = `<canvas id="drawing-board" width="900" height="560" aria-label="Dibujo de la ronda" class="drawing-board cascade-current"></canvas>`;
-  const previousBoards = pictionaryHistory.map((item, index) => `<article class="cascade-card" style="--cascade-order:${index}"><div class="cascade-label">Turno ${index + 1} · Equipo ${item.drawerTeam + 1}</div><img class="cascade-image" src="${item.image}" alt="Dibujo anterior: ${escapeHtml(item.word)}"><div class="cascade-caption">${escapeHtml(item.word)}</div></article>`).join('');
-  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Palabra revelada · ${game.turnIndex + 1} / ${game.teams.length}</div></header><section class="hero"><div class="eyebrow">Dibujo de campaña</div><h1>${escapeHtml(result.word || '')}</h1><p>${won ? `¡Equipo ${result.winnerTeam + 1} adivinó! Equipo ${result.drawerTeam + 1} dibujó.` : `Dibujó el Equipo ${result.drawerTeam + 1}. ${result.reason === 'timeout' ? 'Se acabó el tiempo.' : 'No hubo respuesta correcta.'}`}</p></section><section class="cascade-section"><div class="cascade-heading">${pictionaryHistory.length ? 'Mira cómo va creciendo la galería' : 'Dibujo de este turno'} <span>${game.turnIndex + 1} de ${game.teams.length}</span></div><div class="cascade-gallery">${previousBoards}<article class="cascade-card cascade-card-current" style="--cascade-order:${pictionaryHistory.length}"><div class="cascade-label">Turno ${game.turnIndex + 1} · Equipo ${result.drawerTeam + 1}</div>${board}<div class="cascade-caption">${escapeHtml(result.word || '')}</div></article></div></section><div class="team-list" style="margin-top:16px">${game.teams.map((team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div>${role === 'host' ? '<div class="center" style="margin-top:20px"><button class="btn" id="pictionary-next">Siguiente palabra</button></div>' : '<p class="footer">Espera a que el facilitador inicie el siguiente turno.</p>'}`;
+  const previousBoards = pictionaryHistory.map((item, index) => `<article class="cascade-card" style="--cascade-order:${index}"><div class="cascade-label">Vuelta ${item.cycle} · Equipo ${item.drawerTeam + 1}</div><img class="cascade-image" src="${item.image}" alt="Dibujo anterior: ${escapeHtml(item.word)}"><div class="cascade-caption">${escapeHtml(item.word)}</div></article>`).join('');
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Vuelta ${cycle} · palabra revelada</div></header><section class="hero"><div class="eyebrow">Dibujo de campaña</div><h1>${escapeHtml(result.word || '')}</h1><p>${won ? `¡Equipo ${result.winnerTeam + 1} adivinó! Equipo ${result.drawerTeam + 1} dibujó.` : `Dibujó el Equipo ${result.drawerTeam + 1}. ${result.reason === 'timeout' ? 'Se acabó el tiempo.' : 'No hubo respuesta correcta.'}`}</p></section><section class="cascade-section"><div class="cascade-heading">${pictionaryHistory.length ? 'Galería acumulada de dibujos' : 'Dibujo de este turno'} <span>${game.turnIndex + 1} dibujos</span></div><div class="cascade-gallery">${previousBoards}<article class="cascade-card cascade-card-current" style="--cascade-order:${pictionaryHistory.length}"><div class="cascade-label">Vuelta ${cycle} · Equipo ${result.drawerTeam + 1}</div>${board}<div class="cascade-caption">${escapeHtml(result.word || '')}</div></article></div></section><div class="team-list" style="margin-top:16px">${game.teams.map((team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div>${role === 'host' ? '<div class="center pictionary-actions"><button class="btn" id="pictionary-next">Siguiente equipo</button><button class="btn secondary" id="pictionary-end">Terminar partida</button></div>' : '<p class="footer">El facilitador dará paso al siguiente equipo.</p>'}`;
   drawPictionaryBoard(state.pictionaryBoard);
   document.querySelector('#pictionary-next')?.addEventListener('click', () => send('pictionaryNext'));
+  document.querySelector('#pictionary-end')?.addEventListener('click', () => send('pictionaryEnd'));
 }
 async function compressPhoto(file) {
   let bitmap;
@@ -396,7 +411,8 @@ function renderReveal() {
 }
 function renderEnd() {
   const teamCount = state.teamCount || 2;
-  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Cierre</div></header><section class="hero"><div class="eyebrow">Gracias por participar</div><h1>Una comunidad que escucha y protege.</h1><p>Puedes poner límites, pedir ayuda y acompañar a alguien sin juzgar.</p></section><section class="card center"><div class="team-list">${Array.from({ length: teamCount }, (_, team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div><p>Si necesitas apoyo, acércate en privado al orientador o adulto responsable de protección de tu institución.</p>${role==='host'?'<button class="btn" id="again">Reiniciar partida</button>':''}</section>`;
+  const pictionaryGallery = state.mode === 'pictionary' && pictionaryHistory.length ? `<section class="cascade-section"><div class="cascade-heading">Dibujos de la partida<span>${pictionaryHistory.length} turnos</span></div><div class="cascade-gallery">${pictionaryHistory.map((item, index) => `<article class="cascade-card" style="--cascade-order:${index}"><div class="cascade-label">Vuelta ${item.cycle} · Equipo ${item.drawerTeam + 1}</div><img class="cascade-image" src="${item.image}" alt="Dibujo de ${escapeHtml(item.word)}"><div class="cascade-caption">${escapeHtml(item.word)}</div></article>`).join('')}</div></section>` : '';
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Cierre</div></header><section class="hero"><div class="eyebrow">Gracias por participar</div><h1>Una comunidad que escucha y protege.</h1><p>Puedes poner límites, pedir ayuda y acompañar a alguien sin juzgar.</p></section>${pictionaryGallery}<section class="card center"><div class="team-list">${Array.from({ length: teamCount }, (_, team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div><p>Si necesitas apoyo, acércate en privado al orientador o adulto responsable de protección de tu institución.</p>${role==='host'?'<button class="btn" id="again">Reiniciar partida</button>':''}</section>`;
   document.querySelector('#again')?.addEventListener('click', () => {
     if (role !== 'host') return;
     if (window.confirm('¿Reiniciar la partida para todos? Se borrará el progreso y volverán a la sala de equipos.')) send('reset');
