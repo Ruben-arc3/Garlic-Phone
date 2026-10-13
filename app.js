@@ -7,7 +7,7 @@ const rounds = [
   { title: 'Apoyo entre compañeros', seed: 'Escucha sin juzgar y acompaña a tu amigo a buscar ayuda de una persona adulta segura.' },
   { title: 'Cuidado en internet', seed: 'No compartas una imagen por presión. Guarda evidencia si es seguro y pide apoyo.' },
 ];
-let socket = null, state = null, room = '', role = '';
+let socket = null, state = null, room = '', role = '', timerInterval = null;
 const playerId = localStorage.getItem('voces-player') || crypto.randomUUID();
 localStorage.setItem('voces-player', playerId);
 const escapeHtml = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
@@ -38,7 +38,7 @@ function home() {
   socket?.close(); app.dataset.screen = 'home'; app.className = 'shell';
   app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Juego educativo en vivo</div></header>
     <section class="hero"><div class="eyebrow">Aprender jugando · cuidarnos en comunidad</div><h1>Las buenas respuestas<br>se construyen en equipo.</h1><p>Un teléfono descompuesto de dibujos e interpretaciones para conversar sobre límites y apoyo.</p></section>
-    <section class="home-grid"><article class="card" id="host-card"><div class="eyebrow">Facilitador</div><h2>Crear una sala</h2><p>Proyecta el código y juega con el grupo.</p><label class="field-label" for="team-count">Cantidad de equipos</label><select class="input" id="team-count">${[2,3,4,5,6,7,8].map(n=>`<option value="${n}" ${n===2?'selected':''}>${n} equipos</option>`).join('')}</select><label class="field-label" for="step-count">Aportes por equipo</label><select class="input" id="step-count">${[4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${n===6?'selected':''}>${n} pasos</option>`).join('')}</select><button class="btn full" id="create">Crear sala en vivo</button><div class="status" id="host-status"></div></article>
+    <section class="home-grid"><article class="card" id="host-card"><div class="eyebrow">Facilitador</div><h2>Crear una sala</h2><p>Proyecta el código y juega con el grupo.</p><label class="field-label" for="team-count">Cantidad de equipos</label><select class="input" id="team-count">${Array.from({length:14},(_,i)=>i+2).map(n=>`<option value="${n}" ${n===2?'selected':''}>${n} equipos</option>`).join('')}</select><label class="field-label" for="step-count">Aportes por equipo</label><select class="input" id="step-count">${[4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${n===6?'selected':''}>${n} pasos</option>`).join('')}</select><label class="field-label" for="turn-seconds">Tiempo por turno (segundos)</label><input class="input" id="turn-seconds" type="number" min="15" max="300" step="5" value="60"><p class="note">Entre 15 segundos y 5 minutos; el turno avanza automáticamente.</p><button class="btn full" id="create">Crear sala en vivo</button><div class="status" id="host-status"></div></article>
     <article class="card"><div class="eyebrow">Estudiantes</div><h2 id="join-title">Unirse al juego</h2><p id="join-description">Entra desde el celular con el código de la pantalla.</p><label class="field-label" for="code">Código</label><input class="input" id="code" maxlength="5" placeholder="ABCDE" autocomplete="one-time-code"><label class="field-label" for="nickname">Elige tu apodo</label><input class="input" id="nickname" maxlength="18" placeholder="Apodo (sin apellidos)" autocomplete="nickname"><button class="btn secondary full" id="join">Entrar a la sala</button><div class="status" id="join-status"></div></article></section>
     <p class="footer">No compartas experiencias personales en el juego. Si necesitas hablar, acércate en privado al adulto designado por tu institución.</p>`;
   document.querySelector('#create').onclick = createRoom;
@@ -59,7 +59,8 @@ function home() {
 async function createRoom() {
   const button = document.querySelector('#create'); button.disabled = true;
   try {
-    const response = await fetch(`${API}/create`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ teamCount: Number(document.querySelector('#team-count').value), stepsCount: Number(document.querySelector('#step-count').value) }) });
+    const turnSeconds = Math.min(300, Math.max(15, Number(document.querySelector('#turn-seconds').value) || 60));
+    const response = await fetch(`${API}/create`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ teamCount: Number(document.querySelector('#team-count').value), stepsCount: Number(document.querySelector('#step-count').value), turnSeconds }) });
     if (!response.ok) throw new Error(`Error al crear sala (${response.status}).`);
     const result = await response.json(); connect(result.code, true, result.token);
   } catch (error) { setMessage(error.message, '#host-status'); button.disabled = false; }
@@ -73,10 +74,11 @@ function joinRoom() {
 }
 function teamPanel(team) {
   const players = state?.players?.filter((player) => player.team === team) || [];
-  return `<div class="team"><h3>Equipo ${team ? 'B' : 'A'}</h3><div class="players">${players.length ? players.map((player) => `<span class="player-pill">${escapeHtml(player.name)}</span>`).join('') : 'Esperando participantes…'}</div>
+  return `<div class="team"><h3>Equipo ${team + 1}</h3><div class="players">${players.length ? players.map((player) => `<span class="player-pill">${escapeHtml(player.name)}</span>`).join('') : 'Esperando participantes…'}</div>
     ${role === 'player' && state?.phase === 'lobby' ? `<button class="btn secondary" data-team="${team}" style="margin-top:12px">Elegir equipo ${team + 1}</button>` : ''}</div>`;
 }
 function render() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
   app.dataset.screen = role === 'host' ? 'host' : 'player';
   app.className = role === 'host' && new URLSearchParams(location.search).has('proyector') ? 'projection' : 'shell';
   if (state.phase === 'lobby' && role === 'player') return renderTeamSelect();
@@ -84,6 +86,19 @@ function render() {
   if (state.phase === 'relay') return renderRelay();
   if (state.phase === 'reveal') return renderReveal();
   renderEnd();
+}
+function startCountdowns() {
+  const update = () => {
+    document.querySelectorAll('.live-timer').forEach((element) => {
+      const deadline = Number(element.dataset.deadline);
+      if (!deadline) { element.textContent = 'Turno sin temporizador'; return; }
+      const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      element.textContent = left === 0 ? 'Tiempo agotado · avanzando…' : `Tiempo restante: ${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
+      element.classList.toggle('timer-urgent', left > 0 && left <= 10);
+    });
+  };
+  update();
+  timerInterval = setInterval(update, 250);
 }
 function bindTeamButtons() {
   app.querySelectorAll('[data-team]').forEach((button) => button.onclick = () => send('team', { team: Number(button.dataset.team), name: localStorage.getItem('voces-name') || 'Participante' }));
@@ -103,7 +118,7 @@ function renderLobby() {
     <div class="room-head"><div><div class="eyebrow">Escanea el QR o escribe el código</div><div class="room-code">${escapeHtml(room)}</div><p style="color:var(--muted)">Abre <b>${escapeHtml(location.origin)}</b> en el celular.</p></div>
     <div class="row"><img alt="QR para entrar a la sala" width="110" height="110" style="background:white;border:8px solid white;border-radius:10px" src="${qr}"><button class="btn secondary" id="project">Vista proyector</button><button class="btn" id="start" ${count ? '' : 'disabled'}>Iniciar teléfono</button></div></div>
     <div class="banner"><b>Acuerdo de cuidado:</b> usamos frases ficticias. No compartimos historias personales ni nombres. Si algo preocupa, hablen en privado con el adulto designado.</div>
-    <div class="room-layout"><section class="card"><div class="kicker">Participantes · ${count}</div><div class="team-list" style="margin-top:15px">${teams}</div></section><section class="card"><div class="kicker">Teléfono descompuesto</div><h2 style="margin-top:14px">${state.teamCount} equipos · ${state.stepsCount} pasos</h2><p>Una frase pasa de persona a dibujo y de dibujo a interpretación. Al final se revela cómo cambió.</p><div class="status">${count === 0 ? 'Conéctate con al menos una persona para empezar.' : count === 1 ? 'Puedes iniciar con un jugador; hará la cadena por turnos.' : 'Inicia cuando los equipos estén listos.'}</div></section></div>`;
+    <div class="room-layout"><section class="card"><div class="kicker">Participantes · ${count}</div><div class="team-list" style="margin-top:15px">${teams}</div></section><section class="card"><div class="kicker">Teléfono descompuesto</div><h2 style="margin-top:14px">${state.teamCount} equipos · ${state.stepsCount} pasos</h2><p>Tiempo por turno: <b>${state.turnSeconds} segundos</b>. Una frase pasa de persona a dibujo y de dibujo a interpretación; al final se revela cómo cambió.</p><div class="status">${count === 0 ? 'Conéctate con al menos una persona para empezar.' : count === 1 ? 'Puedes iniciar con un jugador; hará la cadena por turnos.' : 'Inicia cuando los equipos estén listos.'}</div></section></div>`;
   document.querySelector('#start').onclick = () => send('start');
   document.querySelector('#project').onclick = () => { const url = new URL(location.href); url.searchParams.set('proyector', '1'); window.open(url, '_blank'); };
 }
@@ -119,17 +134,17 @@ function getMyTurn() {
 function renderRelay() {
   const round = rounds[state.roundIndex];
   if (role === 'host') {
-    const teams = Array.from({ length: state.teamCount || 2 }, (_, team) => `<section class="card"><div class="kicker">Equipo ${team + 1}</div><div class="room-code" style="font-size:52px">${state.chains?.[team]?.step || 0}<span style="font-size:24px;color:var(--muted)"> / ${state.stepsCount} pasos</span></div></section>`).join('');
+    const teams = Array.from({ length: state.teamCount || 2 }, (_, team) => `<section class="card"><div class="kicker">Equipo ${team + 1}</div><div class="room-code" style="font-size:52px">${state.chains?.[team]?.step || 0}<span style="font-size:24px;color:var(--muted)"> / ${state.stepsCount} pasos</span></div><div class="timer live-timer" data-deadline="${state.chains?.[team]?.deadlineAt || ''}"></div></section>`).join('');
     app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Ronda ${state.roundIndex + 1} / ${rounds.length}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(round.title)}</div><h1>El mensaje va pasando…</h1><p>Cada estudiante dibuja o interpreta el aporte anterior desde su celular.</p></section><div class="room-layout">${teams}</div><p class="footer">La frase inicial y los aportes se revelan al completar la cadena.</p>`;
-    return;
+    startCountdowns(); return;
   }
   const turn = getMyTurn();
   if (!turn) {
     const team = state.mine?.team ?? 0; const step = state.chains?.[team]?.step || 0;
-    app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Equipo ${team + 1}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(round.title)}</div><h1>El teléfono está pasando por el equipo.</h1><p>Cuando llegue tu turno, verás el aporte anterior. No lo compartas con otros equipos.</p></section><section class="card center"><div class="status">Esperando el siguiente turno…</div><div class="score" style="margin-top:16px">${step} / ${state.stepsCount}</div></section>`;
-    return;
+    app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Equipo ${team + 1}</div></header><section class="hero"><div class="eyebrow">${escapeHtml(round.title)}</div><h1>El teléfono está pasando por el equipo.</h1><p>Cuando llegue tu turno, verás el aporte anterior. No lo compartas con otros equipos.</p></section><section class="card center"><div class="status">Esperando el siguiente turno…</div><div class="timer live-timer" data-deadline="${state.chains?.[team]?.deadlineAt || ''}"></div><div class="score" style="margin-top:16px">${step} / ${state.stepsCount}</div></section>`;
+    startCountdowns(); return;
   }
-  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Tu turno · Equipo ${turn.team ? 'B' : 'A'}</div></header><section class="card"><div class="eyebrow">${escapeHtml(round.title)} · paso ${turn.step + 1} de 4</div><h1 class="prompt">${turn.kind === 'image' ? 'Dibujen en una hoja y suban una foto' : '¿Qué crees que representa el dibujo?'}</h1><div class="feedback">${turn.clue?.kind === 'image' ? `<img alt="Dibujo anterior" src="${turn.clue.content}" style="display:block;max-width:100%;max-height:260px;margin:auto;border-radius:12px">` : `<b>Mensaje recibido:</b><br>${escapeHtml(turn.clue?.content || round.seed)}`}</div>
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Tu turno · Equipo ${turn.team + 1}</div></header><section class="card"><div class="eyebrow">${escapeHtml(round.title)} · paso ${turn.step + 1} de ${state.stepsCount}</div><div class="timer live-timer" data-deadline="${turn.chain.deadlineAt || ''}"></div><h1 class="prompt">${turn.kind === 'image' ? 'Dibujen en una hoja y suban una foto' : '¿Qué crees que representa el dibujo?'}</h1><div class="feedback">${turn.clue?.kind === 'image' ? `<img alt="Dibujo anterior" src="${turn.clue.content}" style="display:block;max-width:100%;max-height:260px;margin:auto;border-radius:12px">` : `<b>Mensaje recibido:</b><br>${escapeHtml(turn.clue?.content || round.seed)}`}</div>
     ${turn.kind === 'image' ? `<label class="field-label" for="photo">Toma una foto o elige una imagen</label><input class="input" id="photo" type="file" accept="image/*" capture="environment"><p class="note">Fotografía solo la hoja. Evita que aparezcan caras, nombres, uniformes o datos personales.</p><img id="photo-preview" class="hidden" alt="Vista previa del dibujo" style="display:block;max-width:100%;max-height:300px;margin:14px auto;border-radius:12px"><button class="btn full" id="submit" disabled>Preparar foto…</button><div class="status" id="upload-status"></div>` : `<label class="field-label" for="guess">Tu interpretación (máximo 140 caracteres)</label><textarea id="guess" class="input" maxlength="140" rows="3" placeholder="Escribe una frase breve…"></textarea><button class="btn full" id="submit">Pasar frase</button>`}<p class="footer">No escribas nombres ni experiencias personales.</p></section>`;
   const submit = (kind, content) => send('submit', { content, kind, team: turn.team });
   if (turn.kind === 'image') {
@@ -157,6 +172,7 @@ function renderRelay() {
   } else {
     document.querySelector('#submit').onclick = () => { const text = document.querySelector('#guess').value.trim(); if (text) submit('text', text); };
   }
+  startCountdowns();
 }
 async function compressPhoto(file) {
   let bitmap;

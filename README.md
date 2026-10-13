@@ -22,8 +22,9 @@ Despliega el Worker con Wrangler. Pages Functions usa el mismo dominio y no requ
 
 ## Mecánica del juego
 
-- De 2 a 8 equipos configurables por el facilitador, conectados a una sala en vivo.
-- El facilitador puede configurar entre 2 y 8 equipos y entre 4 y 10 pasos por cadena al crear la sala.
+- De 2 a 15 equipos configurables por el facilitador, conectados a una sala en vivo.
+- El facilitador puede configurar entre 2 y 15 equipos, entre 4 y 10 pasos por cadena y entre 15 y 300 segundos para cada turno.
+- El temporizador sincronizado aparece en el proyector y en los celulares; al agotarse, el equipo pasa automáticamente al siguiente turno.
 - El QR lleva directo a la sala; el estudiante solo escribe un apodo antes de elegir equipo.
 - Cada cadena empieza con una frase educativa, que solo ve el primer participante de ese equipo.
 - Cada turno de dibujo permite fotografiar una hoja o seleccionar la imagen desde el celular; la imagen se comprime y se guarda separada del estado de la sala. En los otros turnos, un jugador interpreta el dibujo por escrito.

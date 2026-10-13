@@ -13,15 +13,16 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/create' && request.method === 'POST') {
       const settings = await request.json().catch(() => ({}));
-      const teamCount = Math.min(8, Math.max(2, Number(settings.teamCount) || 2));
+      const teamCount = Math.min(15, Math.max(2, Number(settings.teamCount) || 2));
       const stepsCount = Math.min(10, Math.max(4, Number(settings.stepsCount) || 6));
+      const turnSeconds = Math.min(300, Math.max(15, Number(settings.turnSeconds) || 60));
       for (let attempt = 0; attempt < 8; attempt++) {
         const code = randomCode();
         const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
         const token = randomToken();
         const response = await stub.fetch('https://room/init', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ code, token, teamCount, stepsCount, createOnly: true }),
+          body: JSON.stringify({ code, token, teamCount, stepsCount, turnSeconds, createOnly: true }),
         });
         if ((await response.json()).created) return Response.json({ code, token });
       }
@@ -41,9 +42,19 @@ export class Room {
   constructor(ctx) { this.ctx = ctx; this.state = null; this.ready = this.load(); }
   async load() {
     this.state = await this.ctx.storage.get('game') || {
-      phase: 'lobby', code: '', hostToken: '', teamCount: 2, stepsCount: 6,
+      phase: 'lobby', code: '', hostToken: '', teamCount: 2, stepsCount: 6, turnSeconds: 60,
       players: [], roundIndex: 0, scores: [0, 0], chains: [],
     };
+    let migrated = false;
+    if (!Number.isFinite(this.state.turnSeconds)) { this.state.turnSeconds = 60; migrated = true; }
+    if (this.state.phase === 'relay') {
+      for (const chain of this.state.chains) {
+        if (chain.step < this.state.stepsCount && !Number.isFinite(chain.deadlineAt)) {
+          chain.deadlineAt = Date.now() + this.state.turnSeconds * 1000; migrated = true;
+        }
+      }
+    }
+    if (migrated) await this.save();
   }
   async save() { await this.ctx.storage.put('game', this.state); }
   async fetch(request) {
@@ -54,8 +65,9 @@ export class Room {
       if (data.createOnly) {
         if (this.state.hostToken) return Response.json({ created: false });
         this.state.code = data.code; this.state.hostToken = data.token;
-        this.state.teamCount = Math.min(8, Math.max(2, Number(data.teamCount) || 2));
+        this.state.teamCount = Math.min(15, Math.max(2, Number(data.teamCount) || 2));
         this.state.stepsCount = Math.min(10, Math.max(4, Number(data.stepsCount) || 6));
+        this.state.turnSeconds = Math.min(300, Math.max(15, Number(data.turnSeconds) || 60));
         this.state.scores = Array(this.state.teamCount).fill(0);
         await this.save(); return Response.json({ created: true });
       }
@@ -69,6 +81,7 @@ export class Room {
     if (role === 'player' && this.state.phase !== 'lobby' && !exists) return new Response('La partida ya comenzó', { status: 409 });
     const pair = new WebSocketPair(); this.ctx.acceptWebSocket(pair[1]); pair[1].serializeAttachment({ role, playerId });
     if (role === 'player' && !exists) { this.state.players.push({ id: playerId, name: 'Participante', team: 0 }); await this.save(); }
+    await this.syncAlarm();
     await this.broadcast();
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -94,11 +107,15 @@ export class Room {
       await this.clearPhotos(); this.state.phase = 'lobby'; this.state.roundIndex = 0;
       this.state.scores = Array(this.state.teamCount).fill(0); this.state.chains = [];
     }
-    await this.save(); await this.broadcast();
+    await this.syncAlarm(); await this.save(); await this.broadcast();
   }
   async acceptContribution(playerId, message) {
     const player = this.state.players.find((item) => item.id === playerId); const chain = player && this.state.chains[player.team];
     if (!player || !chain || chain.step >= this.state.stepsCount || Number(message.team) !== player.team) return;
+    if (chain.deadlineAt && chain.deadlineAt <= Date.now()) {
+      await this.advanceExpiredTurns();
+      return;
+    }
     const teamPlayers = this.state.players.filter((item) => item.team === player.team);
     const expectedPlayer = teamPlayers[chain.step % teamPlayers.length]; const expectedKind = chain.step % 2 === 0 ? 'image' : 'text';
     const content = typeof message.content === 'string' ? message.content.trim() : '';
@@ -110,16 +127,45 @@ export class Room {
       await this.ctx.storage.put(photoKey, content); chain.entries.push({ kind: 'image', photoKey });
     } else chain.entries.push({ kind: 'text', content });
     chain.step++;
+    chain.deadlineAt = chain.step < this.state.stepsCount ? Date.now() + this.state.turnSeconds * 1000 : null;
     if (this.state.chains.every((item) => item.step >= this.state.stepsCount)) {
       this.state.phase = 'reveal';
       this.state.scores = this.state.scores.map((score, team) => score + (this.state.players.some((item) => item.team === team) ? 1 : 0));
     }
   }
   startChains() {
+    const deadlineAt = Date.now() + this.state.turnSeconds * 1000;
     this.state.chains = Array.from({ length: this.state.teamCount }, (_, team) => {
-      if (!this.state.players.some((player) => player.team === team)) return { step: this.state.stepsCount, entries: [] };
-      return { step: 0, entries: [{ kind: 'text', content: SEEDS[this.state.roundIndex % SEEDS.length] }] };
+      if (!this.state.players.some((player) => player.team === team)) return { step: this.state.stepsCount, entries: [], deadlineAt: null };
+      return { step: 0, entries: [{ kind: 'text', content: SEEDS[this.state.roundIndex % SEEDS.length] }], deadlineAt };
     });
+  }
+  async syncAlarm() {
+    if (this.state.phase !== 'relay') { await this.ctx.storage.deleteAlarm(); return; }
+    const deadlines = this.state.chains.map((chain) => chain.deadlineAt).filter((deadline) => Number.isFinite(deadline));
+    if (deadlines.length) await this.ctx.storage.setAlarm(Math.min(...deadlines));
+    else await this.ctx.storage.deleteAlarm();
+  }
+  finishRoundIfComplete() {
+    if (!this.state.chains.length || !this.state.chains.every((chain) => chain.step >= this.state.stepsCount)) return;
+    this.state.phase = 'reveal';
+    this.state.scores = this.state.scores.map((score, team) => score + (this.state.players.some((player) => player.team === team) ? 1 : 0));
+  }
+  async advanceExpiredTurns() {
+    const now = Date.now();
+    for (const chain of this.state.chains) {
+      if (chain.step < this.state.stepsCount && chain.deadlineAt && chain.deadlineAt <= now) {
+        chain.entries.push({ kind: 'text', content: 'El tiempo terminó; el equipo continúa al siguiente turno.' });
+        chain.step++;
+        chain.deadlineAt = chain.step < this.state.stepsCount ? now + this.state.turnSeconds * 1000 : null;
+      }
+    }
+    this.finishRoundIfComplete();
+    await this.syncAlarm(); await this.save(); await this.broadcast();
+  }
+  async alarm() {
+    await this.ready;
+    if (this.state.phase === 'relay') await this.advanceExpiredTurns();
   }
   async clearPhotos() {
     const photos = await this.ctx.storage.list({ prefix: 'photo:' });
@@ -134,7 +180,7 @@ export class Room {
     return { kind: 'image', content: await this.ctx.storage.get(entry.photoKey) || '' };
   }
   async hydrateChains(chains) {
-    return Promise.all(chains.map(async (chain) => ({ step: chain.step, entries: await Promise.all(chain.entries.map((entry) => this.hydrateEntry(entry))) })));
+    return Promise.all(chains.map(async (chain) => ({ step: chain.step, deadlineAt: chain.deadlineAt || null, entries: await Promise.all(chain.entries.map((entry) => this.hydrateEntry(entry))) })));
   }
   async broadcast() {
     const players = this.state.players;
@@ -142,16 +188,16 @@ export class Room {
       const meta = ws.deserializeAttachment(); const mine = meta?.role === 'player' ? players.find((player) => player.id === meta.playerId) : null;
       const teamPlayers = mine ? players.filter((player) => player.team === mine.team) : [];
       const playerIndex = mine ? teamPlayers.findIndex((player) => player.id === mine.id) : -1;
-      let chains = this.state.chains.map((chain) => ({ step: chain.step, entries: [] }));
+      let chains = this.state.chains.map((chain) => ({ step: chain.step, deadlineAt: chain.deadlineAt || null, entries: [] }));
       if (this.state.phase === 'reveal') chains = await this.hydrateChains(this.state.chains);
       else if (mine && this.state.phase === 'relay') {
         const chain = this.state.chains[mine.team]; const clue = chain.entries.at(-1);
-        chains[mine.team] = { step: chain.step, entries: clue ? [await this.hydrateEntry(clue)] : [] };
+        chains[mine.team] = { step: chain.step, deadlineAt: chain.deadlineAt || null, entries: clue ? [await this.hydrateEntry(clue)] : [] };
       }
       const payload = {
         type: 'state', state: {
           phase: this.state.phase, players, roundIndex: this.state.roundIndex, scores: this.state.scores,
-          chains, teamCount: this.state.teamCount, stepsCount: this.state.stepsCount,
+          chains, teamCount: this.state.teamCount, stepsCount: this.state.stepsCount, turnSeconds: this.state.turnSeconds,
           mine: mine ? { id: mine.id, team: mine.team, index: playerIndex } : null,
         },
       };
