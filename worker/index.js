@@ -38,6 +38,7 @@ export default {
       const teamCount = Math.min(15, Math.max(2, Number(settings.teamCount) || 2));
       const stepsCount = Math.min(10, Math.max(4, Number(settings.stepsCount) || 6));
       const turnSeconds = Math.min(300, Math.max(15, Number(settings.turnSeconds) || 60));
+      const pictionaryRounds = Math.min(10, Math.max(1, Number(settings.pictionaryRounds) || 1));
       const mode = ['memory', 'pictionary'].includes(settings.mode) ? settings.mode : 'phrase';
       for (let attempt = 0; attempt < 8; attempt++) {
         const code = randomCode();
@@ -45,7 +46,7 @@ export default {
         const token = randomToken();
         const response = await stub.fetch('https://room/init', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ code, token, teamCount, stepsCount, turnSeconds, mode, createOnly: true }),
+          body: JSON.stringify({ code, token, teamCount, stepsCount, pictionaryRounds, turnSeconds, mode, createOnly: true }),
         });
         if ((await response.json()).created) return Response.json({ code, token });
       }
@@ -65,7 +66,7 @@ export class Room {
   constructor(ctx) { this.ctx = ctx; this.state = null; this.ready = this.load(); }
   async load() {
     this.state = await this.ctx.storage.get('game') || {
-      phase: 'lobby', code: '', hostToken: '', teamCount: 2, stepsCount: 6, turnSeconds: 60, mode: 'phrase',
+      phase: 'lobby', code: '', hostToken: '', teamCount: 2, stepsCount: 6, pictionaryRounds: 1, turnSeconds: 60, mode: 'phrase',
       players: [], roundIndex: 0, scores: [0, 0], chains: [], memory: null, pictionary: null,
     };
     let migrated = false;
@@ -91,6 +92,7 @@ export class Room {
         this.state.teamCount = Math.min(15, Math.max(2, Number(data.teamCount) || 2));
         this.state.stepsCount = Math.min(10, Math.max(4, Number(data.stepsCount) || 6));
         this.state.turnSeconds = Math.min(300, Math.max(15, Number(data.turnSeconds) || 60));
+        this.state.pictionaryRounds = Math.min(10, Math.max(1, Number(data.pictionaryRounds) || 1));
         this.state.mode = ['memory', 'pictionary'].includes(data.mode) ? data.mode : 'phrase';
         this.state.scores = Array(this.state.teamCount).fill(0);
         await this.save(); return Response.json({ created: true });
@@ -126,7 +128,9 @@ export class Room {
     } else if (message.type === 'submit' && !isHost && this.state.phase === 'relay') {
       await this.acceptContribution(meta.playerId, message);
     } else if (message.type === 'pictionaryBackground' && !isHost && this.state.phase === 'pictionary') {
-      await this.acceptPictionaryBackground(meta.playerId, message.content);
+      const accepted = await this.acceptPictionaryBackground(meta.playerId, message.content);
+      try { ws.send(JSON.stringify({ type: 'pictionaryBackgroundResult', accepted })); } catch { /* socket already closed */ }
+      if (!accepted) return;
     } else if (message.type === 'pictionaryStroke' && !isHost && this.state.phase === 'pictionary') {
       const stroke = this.acceptPictionaryStroke(meta.playerId, message.stroke);
       if (!stroke) return;
@@ -152,7 +156,8 @@ export class Room {
     } else if (message.type === 'pictionaryNext' && isHost && this.state.phase === 'pictionaryReveal') {
       await this.clearPictionaryBackground();
       const game = this.state.pictionary; game.turnIndex++;
-      this.state.phase = 'pictionary'; this.beginPictionaryTurn();
+      if (game.turnIndex >= game.teams.length * (this.state.pictionaryRounds || 1)) this.state.phase = 'end';
+      else { this.state.phase = 'pictionary'; this.beginPictionaryTurn(); }
     } else if (message.type === 'pictionaryEnd' && isHost && this.state.phase === 'pictionaryReveal') {
       this.state.phase = 'end';
     } else if (message.type === 'next' && isHost && this.state.phase === 'reveal') {
@@ -259,11 +264,12 @@ export class Room {
   }
   async acceptPictionaryBackground(playerId, content) {
     const game = this.state.pictionary;
-    if (!game || game.drawerId !== playerId || game.deadlineAt <= Date.now()) return;
-    if (typeof content !== 'string' || !/^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(content) || content.length > 480000) return;
+    if (!game || game.drawerId !== playerId || game.deadlineAt <= Date.now()) return false;
+    if (typeof content !== 'string' || !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(content) || content.length > 480000) return false;
     game.backgroundKey = `pictionary:background:${game.turnIndex}`;
     await this.ctx.storage.put(game.backgroundKey, content);
     this.startPictionaryHints(game);
+    return true;
   }
   acceptPictionaryStroke(playerId, stroke) {
     const game = this.state.pictionary;
@@ -489,7 +495,7 @@ export class Room {
       const payload = {
         type: 'state', state: {
           phase: this.state.phase, players, roundIndex: this.state.roundIndex, scores: this.state.scores,
-          chains, teamCount: this.state.teamCount, stepsCount: this.state.stepsCount, turnSeconds: this.state.turnSeconds, mode: this.state.mode,
+          chains, teamCount: this.state.teamCount, stepsCount: this.state.stepsCount, pictionaryRounds: this.state.pictionaryRounds || 1, turnSeconds: this.state.turnSeconds, mode: this.state.mode,
           memory: this.state.mode === 'memory' && memory ? { teams: memory.teams, stage: memory.stage, doneTeams: memory.doneTeams, deadlineAt: memory.deadlineAt, previewUntil: memory.previewUntil } : null,
           memoryClue,
           pictionary: pictionaryState, pictionaryWord, pictionaryHint, pictionaryBoard,

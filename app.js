@@ -89,6 +89,7 @@ function connect(code, asHost, token = '') {
       appendPictionaryChat(message.entry);
     }
     if (message.type === 'pictionaryGuessResult') setMessage(message.correct ? '¡Correcto! Tu equipo sumó puntos.' : 'Todavía no. Prueba otra respuesta.', '#guess-status');
+    if (message.type === 'pictionaryBackgroundResult') setMessage(message.accepted ? 'Foto recibida por la sala. El papel claro se ve transparente y los colores se conservan.' : 'No se pudo aceptar la foto. Vuelve a elegirla o toma una foto más pequeña.', '#drawing-status');
     if (message.type === 'error') setMessage(message.message);
   };
   socket.onerror = () => setMessage('No se pudo conectar. Revisa que el Worker y Pages estén desplegados.');
@@ -98,7 +99,7 @@ function home() {
   socket?.close(); app.dataset.screen = 'home'; app.className = 'shell';
   app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Juego educativo en vivo</div></header>
     <section class="hero"><div class="eyebrow">Aprender jugando · cuidarnos en comunidad</div><h1>Las buenas respuestas<br>se construyen en equipo.</h1><p>Un teléfono descompuesto de dibujos e interpretaciones para conversar sobre límites y apoyo.</p></section>
-    <section class="home-grid"><article class="card" id="host-card"><div class="eyebrow">Facilitador</div><h2>Crear una sala</h2><p>Proyecta el código y juega con el grupo.</p><label class="field-label" for="team-count">Cantidad de equipos</label><select class="input" id="team-count">${Array.from({length:14},(_,i)=>i+2).map(n=>`<option value="${n}" ${n===2?'selected':''}>${n} equipos</option>`).join('')}</select><label class="field-label" for="game-mode">Modo de juego</label><select class="input" id="game-mode"><option value="phrase">Knock-Off · misma frase educativa</option><option value="memory">Knock-Off · memorizar dibujo</option><option value="pictionary">Pinturillo · dibujar y adivinar</option></select><p class="note">En memorizar dibujo, cada equipo empieza con un modelo distinto, lo replica y pasa su copia al siguiente equipo.</p><label class="field-label" for="step-count">Aportes por equipo (modo frase)</label><select class="input" id="step-count">${[4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${n===6?'selected':''}>${n} pasos</option>`).join('')}</select><label class="field-label" for="turn-seconds">Tiempo por turno (segundos)</label><input class="input" id="turn-seconds" type="number" min="15" max="300" step="5" value="60"><p class="note">Entre 15 segundos y 5 minutos; el turno avanza automáticamente.</p><button class="btn full" id="create">Crear sala en vivo</button><div class="status" id="host-status"></div></article>
+    <section class="home-grid"><article class="card" id="host-card"><div class="eyebrow">Facilitador</div><h2>Crear una sala</h2><p>Proyecta el código y juega con el grupo.</p><label class="field-label" for="team-count">Cantidad de equipos</label><select class="input" id="team-count">${Array.from({length:14},(_,i)=>i+2).map(n=>`<option value="${n}" ${n===2?'selected':''}>${n} equipos</option>`).join('')}</select><label class="field-label" for="game-mode">Modo de juego</label><select class="input" id="game-mode"><option value="phrase">Knock-Off · misma frase educativa</option><option value="memory">Knock-Off · memorizar dibujo</option><option value="pictionary">Pinturillo · dibujar y adivinar</option></select><p class="note">En memorizar dibujo, cada equipo empieza con un modelo distinto, lo replica y pasa su copia al siguiente equipo.</p><label class="field-label" for="step-count">Aportes por equipo (modo frase)</label><select class="input" id="step-count">${[4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${n===6?'selected':''}>${n} pasos</option>`).join('')}</select><div id="pictionary-round-setting" class="hidden"><label class="field-label" for="pictionary-rounds">Vueltas de Pinturillo</label><select class="input" id="pictionary-rounds">${Array.from({length:10},(_,i)=>i+1).map(n=>`<option value="${n}" ${n===1?'selected':''}>${n} ${n===1?'vuelta':'vueltas'} · cada equipo dibuja ${n} ${n===1?'vez':'veces'}</option>`).join('')}</select></div><label class="field-label" for="turn-seconds">Tiempo por turno (segundos)</label><input class="input" id="turn-seconds" type="number" min="15" max="300" step="5" value="60"><p class="note">Entre 15 segundos y 5 minutos; el turno avanza automáticamente.</p><button class="btn full" id="create">Crear sala en vivo</button><div class="status" id="host-status"></div></article>
     <article class="card"><div class="eyebrow">Estudiantes</div><h2 id="join-title">Unirse al juego</h2><p id="join-description">Entra desde el celular con el código de la pantalla.</p><label class="field-label" for="code">Código</label><input class="input" id="code" maxlength="5" placeholder="ABCDE" autocomplete="one-time-code"><label class="field-label" for="nickname">Elige tu apodo</label><input class="input" id="nickname" maxlength="18" placeholder="Apodo (sin apellidos)" autocomplete="nickname"><button class="btn secondary full" id="join">Entrar a la sala</button><div class="status" id="join-status"></div></article></section>
     <p class="footer">No compartas experiencias personales en el juego. Si necesitas hablar, acércate en privado al adulto designado por tu institución.</p>`;
   document.querySelector('#create').onclick = createRoom;
@@ -110,6 +111,8 @@ function home() {
     document.querySelector('#step-count').classList.toggle('hidden', hidden);
   };
   modeSelect.onchange = syncStepSetting; syncStepSetting();
+  const syncPictionarySetting = () => document.querySelector('#pictionary-round-setting').classList.toggle('hidden', modeSelect.value !== 'pictionary');
+  modeSelect.addEventListener('change', syncPictionarySetting); syncPictionarySetting();
   const input = document.querySelector('#code');
   input.oninput = () => { input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); };
   const invitedCode = new URLSearchParams(location.search).get('code');
@@ -127,7 +130,7 @@ async function createRoom() {
   const button = document.querySelector('#create'); button.disabled = true;
   try {
     const turnSeconds = Math.min(300, Math.max(15, Number(document.querySelector('#turn-seconds').value) || 60));
-    const response = await fetch(`${API}/create`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ teamCount: Number(document.querySelector('#team-count').value), stepsCount: Number(document.querySelector('#step-count').value), turnSeconds, mode: document.querySelector('#game-mode').value }) });
+    const response = await fetch(`${API}/create`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ teamCount: Number(document.querySelector('#team-count').value), stepsCount: Number(document.querySelector('#step-count').value), pictionaryRounds: Number(document.querySelector('#pictionary-rounds').value), turnSeconds, mode: document.querySelector('#game-mode').value }) });
     if (!response.ok) throw new Error(`Error al crear sala (${response.status}).`);
     const result = await response.json(); connect(result.code, true, result.token);
   } catch (error) { setMessage(error.message, '#host-status'); button.disabled = false; }
@@ -167,7 +170,8 @@ function startCountdowns() {
         return;
       }
       const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-      element.textContent = left === 0 ? 'Tiempo agotado · avanzando…' : `Tiempo restante: ${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
+      const label = element.dataset.label || 'Tiempo restante';
+      element.textContent = left === 0 ? 'Tiempo agotado · avanzando…' : `${label}: ${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
       element.classList.toggle('timer-urgent', left > 0 && left <= 10);
     });
   };
@@ -307,7 +311,7 @@ function renderPictionary() {
   const cycle = Math.floor(game.turnIndex / game.teams.length) + 1;
   const header = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="pictionary-top-actions"><div class="tag">Pinturillo · vuelta ${cycle} · dibuja Equipo ${game.drawerTeam + 1}</div><button type="button" class="btn secondary fullscreen-toggle" id="fullscreen-toggle">Pantalla completa</button></div></header>`;
   const board = `<canvas id="drawing-board" width="900" height="560" aria-label="Tablero de dibujo" class="drawing-board"></canvas>`;
-  const timer = `<div class="timer live-timer" data-deadline="${game.deadlineAt}"></div>`;
+  const timer = `<div class="pictionary-countdown-bar"><div class="timer live-timer pictionary-countdown" role="timer" aria-live="off" data-label="${isDrawer ? 'Tiempo para dibujar' : 'Tiempo del turno'}" data-deadline="${game.deadlineAt}"></div></div>`;
   const scoreboard = `<aside class="pictionary-score-panel"><div class="pictionary-panel-title">Equipos <span>puntos</span></div>${game.teams.map((team) => `<div class="pictionary-score-row"><span><b>${team + 1}</b> Equipo ${team + 1}</span><strong>${state.scores?.[team] || 0}</strong></div>`).join('')}</aside>`;
   let drawingTools = '';
   if (isDrawer) drawingTools = `<section class="drawing-tools"><div class="pictionary-secret">Tu palabra: <strong>${escapeHtml(state.pictionaryWord)}</strong></div><p>Dibújala sin escribir letras ni la palabra. Puedes dibujar en el tablero o subir una foto.</p><label class="field-label" for="drawing-photo">Foto de la hoja (opcional)</label><input class="input" id="drawing-photo" type="file" accept="image/*" capture="environment"><label class="paper-clean-option"><input id="remove-paper-background" type="checkbox" checked> Quitar papel claro y conservar los trazos de colores</label><div class="tool-row"><label>Color <input id="brush-color" type="color" value="#20233a"></label><label>Grosor <input id="brush-size" type="range" min="2" max="18" value="7"></label><button class="btn secondary" id="clear-drawing">Borrar trazos</button><button class="btn" id="finish-drawing">Terminar turno</button></div><div class="status" id="drawing-status"></div></section>`;
@@ -316,7 +320,7 @@ function renderPictionary() {
   if (role === 'player' && !isArtistTeam) chatControls = `<div class="pictionary-chat-compose"><input id="guess-input" class="input" maxlength="50" placeholder="Escribe tu respuesta"><button class="btn" id="send-guess">Enviar</button></div><div class="chat-help" id="guess-ready"></div><div class="chat-help" id="guess-status"></div>`;
   else if (isArtistTeam) chatControls = `<div class="chat-help">Tu equipo dibuja este turno; los demás equipos están adivinando.</div>`;
   const chat = `<aside class="pictionary-chat-panel"><div class="pictionary-panel-title">Intentos y puntos <span id="guess-count">${game.guessCount}</span></div><div class="pictionary-chat-list" id="pictionary-chat-list">${(game.chat || []).map(pictionaryChatEntryHtml).join('')}</div>${chatControls}</aside>`;
-  app.innerHTML = `${header}<section class="pictionary-hero"><div><div class="eyebrow">Pinturillo de prevención</div><h1>${role === 'host' ? `Dibuja el Equipo ${game.drawerTeam + 1}` : isDrawer ? 'Tu turno: dibuja' : isArtistTeam ? 'Tu equipo dibuja' : 'Mira el dibujo y adivina'}</h1></div><div class="pictionary-round-info">${timer}<div class="pictionary-hint ${state.pictionaryHint ? '' : 'hidden'}" id="pictionary-hint" aria-live="polite">${state.pictionaryHint ? `Pista: ${escapeHtml(state.pictionaryHint)}` : ''}</div></div></section><div class="pictionary-layout">${scoreboard}<section class="pictionary-board-panel">${board}${drawingTools}</section>${chat}</div>`;
+  app.innerHTML = `${header}<section class="pictionary-hero"><div><div class="eyebrow">Pinturillo de prevención</div><h1>${role === 'host' ? `Dibuja el Equipo ${game.drawerTeam + 1}` : isDrawer ? 'Tu turno: dibuja' : isArtistTeam ? 'Tu equipo dibuja' : 'Mira el dibujo y adivina'}</h1></div><div class="pictionary-round-info"><div class="pictionary-hint ${state.pictionaryHint ? '' : 'hidden'}" id="pictionary-hint" aria-live="polite">${state.pictionaryHint ? `Pista: ${escapeHtml(state.pictionaryHint)}` : ''}</div></div></section>${timer}<div class="pictionary-layout">${scoreboard}<section class="pictionary-board-panel">${board}${drawingTools}</section>${chat}</div>`;
   bindFullscreenButton();
   drawPictionaryBoard(state.pictionaryBoard);
   if (isDrawer) bindPictionaryDrawing();
@@ -372,7 +376,11 @@ function bindPictionaryDrawing() {
     if (!file.type.startsWith('image/')) { setMessage('Selecciona una imagen válida.', '#drawing-status'); return; }
     const removePaper = document.querySelector('#remove-paper-background').checked;
     setMessage(removePaper ? 'Quitando el papel claro y preparando la foto…' : 'Preparando la foto…', '#drawing-status');
-    try { send('pictionaryBackground', { content: await compressPictionaryPhoto(file, removePaper) }); setMessage(removePaper ? 'Foto lista: papel claro transparente; los colores se conservan. Ya puedes dibujar encima.' : 'Foto original enviada. Ya puedes dibujar encima.', '#drawing-status'); }
+    try {
+      const content = await compressPictionaryPhoto(file, removePaper);
+      send('pictionaryBackground', { content });
+      setMessage(removePaper ? 'Foto procesada; esperando confirmación de la sala…' : 'Foto preparada; esperando confirmación de la sala…', '#drawing-status');
+    }
     catch { setMessage('No se pudo preparar esa imagen. Prueba con otra.', '#drawing-status'); }
   };
 }
@@ -414,7 +422,8 @@ function renderPictionaryReveal() {
   const scoreRows = `<aside class="pictionary-score-panel"><div class="pictionary-panel-title">Equipos <span>puntos</span></div>${game.teams.map((team) => `<div class="pictionary-score-row"><span><b>${team + 1}</b> Equipo ${team + 1}</span><strong>${state.scores?.[team] || 0}</strong></div>`).join('')}</aside>`;
   const chat = `<aside class="pictionary-chat-panel"><div class="pictionary-panel-title">Intentos y puntos <span>${game.guessCount}</span></div><div class="pictionary-chat-list" id="pictionary-chat-list">${(game.chat || []).map(pictionaryChatEntryHtml).join('')}</div></aside>`;
   const gallery = pictionaryHistory.length ? `<section class="cascade-section"><div class="cascade-heading">Dibujos anteriores<span>${pictionaryHistory.length} turnos</span></div><div class="cascade-gallery">${previousBoards}</div></section>` : '';
-  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="pictionary-top-actions"><div class="tag">Vuelta ${cycle} · turno terminado</div><button type="button" class="btn secondary fullscreen-toggle" id="fullscreen-toggle">Pantalla completa</button></div></header><section class="pictionary-hero"><div><div class="eyebrow">Dibujo de campaña</div><h1>${won ? `¡Equipo ${result.winnerTeam + 1} adivinó!` : 'Turno completado'}</h1><p>${won ? `Equipo ${result.winnerTeam + 1} suma 2 puntos y el Equipo ${result.drawerTeam + 1}, que dibujó, suma 1.` : `Dibujó el Equipo ${result.drawerTeam + 1}. ${result.reason === 'timeout' ? 'Se acabó el tiempo.' : 'No hubo aciertos.'}`}</p></div></section><div class="pictionary-layout">${scoreRows}<section class="pictionary-board-panel">${board}</section>${chat}</div>${gallery}${role === 'host' ? '<div class="center pictionary-actions"><button class="btn" id="pictionary-next">Siguiente equipo</button><button class="btn secondary" id="pictionary-end">Terminar partida</button></div>' : '<p class="footer">El facilitador dará paso al siguiente equipo.</p>'}`;
+  const lastTurn = game.turnIndex + 1 >= game.teams.length * (state.pictionaryRounds || 1);
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="pictionary-top-actions"><div class="tag">Vuelta ${cycle} · turno terminado</div><button type="button" class="btn secondary fullscreen-toggle" id="fullscreen-toggle">Pantalla completa</button></div></header><section class="pictionary-hero"><div><div class="eyebrow">Dibujo de campaña</div><h1>${won ? `¡Equipo ${result.winnerTeam + 1} adivinó!` : 'Turno completado'}</h1><p>${won ? `Equipo ${result.winnerTeam + 1} suma 2 puntos y el Equipo ${result.drawerTeam + 1}, que dibujó, suma 1.` : `Dibujó el Equipo ${result.drawerTeam + 1}. ${result.reason === 'timeout' ? 'Se acabó el tiempo.' : 'No hubo aciertos.'}`}</p></div></section><div class="pictionary-layout">${scoreRows}<section class="pictionary-board-panel">${board}</section>${chat}</div>${gallery}${role === 'host' ? `<div class="center pictionary-actions"><button class="btn" id="pictionary-next">${lastTurn ? 'Ver resultados' : 'Siguiente equipo'}</button>${lastTurn ? '' : '<button class="btn secondary" id="pictionary-end">Terminar partida</button>'}</div>` : '<p class="footer">El facilitador dará paso al siguiente equipo.</p>'}`;
   bindFullscreenButton();
   drawPictionaryBoard(state.pictionaryBoard);
   const chatList = document.querySelector('#pictionary-chat-list'); if (chatList) chatList.scrollTop = chatList.scrollHeight;
@@ -475,14 +484,18 @@ async function compressPictionaryPhoto(file, removePaper) {
         const red = data[index], green = data[index + 1], blue = data[index + 2];
         const brightness = (red + green + blue) / 3;
         const chroma = Math.max(red, green, blue) - Math.min(red, green, blue);
-        const paperAlpha = Math.max(0, Math.min(1, (232 - brightness) / 55));
-        const colorProtection = Math.max(0, Math.min(1, (chroma - 10) / 22));
+        const paperProgress = Math.max(0, Math.min(1, (brightness - 150) / 85));
+        const paperAlpha = 1 - (paperProgress * paperProgress * (3 - 2 * paperProgress));
+        const colorProtection = Math.max(0, Math.min(1, (chroma - 8) / 20));
         const alpha = Math.max(paperAlpha, colorProtection);
         data[index + 3] = Math.round(data[index + 3] * alpha);
       }
       context.putImageData(pixels, 0, 0);
     }
-    result = canvas.toDataURL(removePaper ? 'image/png' : 'image/jpeg', 0.64);
+    if (removePaper) {
+      const webp = canvas.toDataURL('image/webp', 0.78);
+      result = webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/png');
+    } else result = canvas.toDataURL('image/jpeg', 0.64);
     if (result.length <= 480000) break;
   }
   if (bitmap.close) bitmap.close();
