@@ -136,8 +136,12 @@ export class Room {
     } else if (message.type === 'pictionaryClear' && !isHost && this.state.phase === 'pictionary') {
       this.clearPictionaryStrokes(meta.playerId);
     } else if (message.type === 'pictionaryGuess' && !isHost && this.state.phase === 'pictionary') {
-      const correct = this.acceptPictionaryGuess(meta.playerId, message.guess);
+      const result = this.acceptPictionaryGuess(meta.playerId, message.guess);
+      const correct = result?.correct === true;
       try { ws.send(JSON.stringify({ type: 'pictionaryGuessResult', correct })); } catch { /* socket already closed */ }
+      if (result?.entry) {
+        for (const peer of this.ctx.getWebSockets()) { try { peer.send(JSON.stringify({ type: 'pictionaryChat', entry: result.entry })); } catch { /* socket already closed */ } }
+      }
       if (this.state.phase === 'pictionary') {
         await this.save();
         for (const peer of this.ctx.getWebSockets()) { try { peer.send(JSON.stringify({ type: 'pictionaryStatus', guessCount: this.state.pictionary.guessCount })); } catch { /* socket already closed */ } }
@@ -216,7 +220,7 @@ export class Room {
   chainLength() { return this.state.mode === 'memory' ? 1 : this.state.stepsCount; }
   startPictionary() {
     const teams = [...new Set(this.state.players.map((player) => player.team))].sort((a, b) => a - b);
-    this.state.pictionary = { teams, turnIndex: 0, drawerTeam: null, drawerId: null, word: '', deadlineAt: null, backgroundKey: null, strokes: [], guessedTeams: [], guessCount: 0, result: null };
+    this.state.pictionary = { teams, turnIndex: 0, drawerTeam: null, drawerId: null, word: '', deadlineAt: null, backgroundKey: null, strokes: [], guessedTeams: [], guessCount: 0, result: null, chat: [] };
     this.beginPictionaryTurn();
   }
   beginPictionaryTurn() {
@@ -268,22 +272,35 @@ export class Room {
   acceptPictionaryGuess(playerId, guess) {
     const game = this.state.pictionary;
     const player = this.state.players.find((item) => item.id === playerId);
-    if (!game || !player || player.team === game.drawerTeam || game.deadlineAt <= Date.now() || (!game.backgroundKey && !game.strokes.length)) return false;
-    game.guessCount++;
+    if (!game || !player || player.team === game.drawerTeam || game.deadlineAt <= Date.now() || (!game.backgroundKey && !game.strokes.length)) return null;
+    game.chat ||= [];
     const normalize = (value) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (normalize(guess) !== normalize(game.word)) return false;
+    const cleanGuess = String(guess || '').trim().slice(0, 50);
+    if (!normalize(cleanGuess)) return null;
+    game.guessCount++;
+    if (normalize(cleanGuess) !== normalize(game.word)) {
+      const entry = { kind: 'guess', team: player.team, playerName: player.name, text: cleanGuess, at: Date.now() };
+      game.chat.push(entry); if (game.chat.length > 80) game.chat.shift();
+      return { correct: false, entry };
+    }
     game.guessedTeams.push(player.team);
     this.finishPictionaryTurn('guessed', null, player.team);
-    return true;
+    return { correct: true };
   }
   finishPictionaryTurn(reason, playerId = null, winnerTeam = null) {
     const game = this.state.pictionary;
     if (!game || this.state.phase !== 'pictionary' || (playerId && game.drawerId !== playerId)) return false;
-    game.result = { word: game.word, drawerTeam: game.drawerTeam, winnerTeam, reason };
+    game.chat ||= [];
+    game.result = { drawerTeam: game.drawerTeam, winnerTeam, reason };
     if (winnerTeam !== null) {
       this.state.scores[winnerTeam] = (this.state.scores[winnerTeam] || 0) + 2;
       this.state.scores[game.drawerTeam] = (this.state.scores[game.drawerTeam] || 0) + 1;
+      game.chat.push({ kind: 'correct', team: winnerTeam, text: `¡Equipo ${winnerTeam + 1} adivinó! +2 puntos`, at: Date.now() });
+      game.chat.push({ kind: 'system', team: game.drawerTeam, text: `Equipo ${game.drawerTeam + 1} suma 1 punto por dibujar`, at: Date.now() });
+    } else {
+      game.chat.push({ kind: 'system', team: game.drawerTeam, text: `Terminó el turno del Equipo ${game.drawerTeam + 1} sin aciertos`, at: Date.now() });
     }
+    if (game.chat.length > 80) game.chat = game.chat.slice(-80);
     this.state.phase = 'pictionaryReveal';
     return true;
   }
@@ -422,10 +439,11 @@ export class Room {
       const pictionary = this.state.pictionary;
       if (pictionary && ['pictionary', 'pictionaryReveal'].includes(this.state.phase)) {
         const isReveal = this.state.phase === 'pictionaryReveal';
+        const publicResult = pictionary.result ? { drawerTeam: pictionary.result.drawerTeam, winnerTeam: pictionary.result.winnerTeam, reason: pictionary.result.reason } : null;
         pictionaryState = isReveal
-          ? { teams: pictionary.teams, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: pictionary.result }
-          : { teams: pictionary.teams, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: null };
-        if (isReveal || (meta?.role === 'player' && meta.playerId === pictionary.drawerId)) pictionaryWord = pictionary.word;
+          ? { teams: pictionary.teams, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: publicResult, chat: pictionary.chat || [] }
+          : { teams: pictionary.teams, turnIndex: pictionary.turnIndex, drawerTeam: pictionary.drawerTeam, deadlineAt: pictionary.deadlineAt, guessCount: pictionary.guessCount, result: null, chat: pictionary.chat || [] };
+        if (!isReveal && meta?.role === 'player' && meta.playerId === pictionary.drawerId) pictionaryWord = pictionary.word;
         const hasDrawing = Boolean(pictionary.backgroundKey || pictionary.strokes.length);
         if (!isReveal && hasDrawing && (meta?.role === 'host' || (mine && mine.team !== pictionary.drawerTeam))) pictionaryHint = this.pictionaryHint(pictionary.word, pictionary.hintLevel || 0);
         pictionaryBoard = {

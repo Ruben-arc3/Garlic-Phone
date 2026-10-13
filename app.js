@@ -42,7 +42,7 @@ function connect(code, asHost, token = '') {
       if (previousPhase === 'pictionary' && state.phase === 'pictionary' && document.querySelector('#drawing-board')) {
         drawPictionaryBoard(state.pictionaryBoard);
         const count = document.querySelector('#guess-count'); if (count && state.pictionary) count.textContent = `${state.pictionary.guessCount} intentos`;
-        const hint = document.querySelector('#pictionary-hint'); if (hint) hint.textContent = state.pictionaryHint ? `Pista: ${state.pictionaryHint}` : '';
+        const hint = document.querySelector('#pictionary-hint'); if (hint) { hint.textContent = state.pictionaryHint ? `Pista: ${state.pictionaryHint}` : ''; hint.classList.toggle('hidden', !state.pictionaryHint); }
         syncPictionaryGuessAvailability();
         return;
       }
@@ -56,6 +56,11 @@ function connect(code, asHost, token = '') {
     if (message.type === 'pictionaryStatus' && state?.pictionary) {
       state.pictionary.guessCount = message.guessCount;
       const count = document.querySelector('#guess-count'); if (count) count.textContent = `${message.guessCount} intentos`;
+    }
+    if (message.type === 'pictionaryChat' && state?.pictionary && message.entry) {
+      state.pictionary.chat ||= []; state.pictionary.chat.push(message.entry);
+      if (state.pictionary.chat.length > 80) state.pictionary.chat.shift();
+      appendPictionaryChat(message.entry);
     }
     if (message.type === 'pictionaryGuessResult') setMessage(message.correct ? '¡Correcto! Tu equipo sumó puntos.' : 'Todavía no. Prueba otra respuesta.', '#guess-status');
     if (message.type === 'error') setMessage(message.message);
@@ -258,6 +263,16 @@ function renderRelay() {
   }
   startCountdowns();
 }
+function pictionaryChatEntryHtml(entry) {
+  const team = entry.team === undefined ? '' : `Equipo ${entry.team + 1}`;
+  const player = entry.playerName ? `${escapeHtml(entry.playerName)} · ` : '';
+  return `<div class="pictionary-chat-line ${entry.kind === 'correct' ? 'chat-correct' : entry.kind === 'system' ? 'chat-system' : ''}"><span>${escapeHtml(team)}</span><div>${player}${escapeHtml(entry.text || '')}</div></div>`;
+}
+function appendPictionaryChat(entry) {
+  const list = document.querySelector('#pictionary-chat-list'); if (!list) return;
+  list.insertAdjacentHTML('beforeend', pictionaryChatEntryHtml(entry));
+  list.scrollTop = list.scrollHeight;
+}
 function renderPictionary() {
   const game = state.pictionary;
   const isDrawer = role === 'player' && game.drawerTeam === state.mine?.team && state.pictionaryWord;
@@ -265,30 +280,30 @@ function renderPictionary() {
   const artist = state.players.find((player) => player.id === game.drawerId);
   const cycle = Math.floor(game.turnIndex / game.teams.length) + 1;
   const header = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Pinturillo · vuelta ${cycle} · dibuja Equipo ${game.drawerTeam + 1}</div></header>`;
-  const board = `<canvas id="drawing-board" width="900" height="560" aria-label="Tablero de dibujo" style="display:block;width:100%;max-height:62vh;aspect-ratio:900/560;background:white;border-radius:14px;touch-action:none"></canvas>`;
+  const board = `<canvas id="drawing-board" width="900" height="560" aria-label="Tablero de dibujo" class="drawing-board"></canvas>`;
   const timer = `<div class="timer live-timer" data-deadline="${game.deadlineAt}"></div>`;
-  let controls = '';
-  if (role === 'player' && isDrawer) {
-    controls = `<section class="card" style="margin-top:16px"><div class="eyebrow">Tu palabra</div><h1 class="prompt">${escapeHtml(state.pictionaryWord)}</h1><p>Dibújala sin escribir letras ni la palabra. Puedes subir una imagen como fondo y dibujar encima.</p><div class="drawing-tools"><label class="field-label" for="drawing-photo">Imagen de fondo (opcional)</label><input class="input" id="drawing-photo" type="file" accept="image/*" capture="environment"><p class="note">Usa una imagen sin caras, nombres ni datos personales.</p><div class="tool-row"><label>Color <input id="brush-color" type="color" value="#20233a"></label><label>Grosor <input id="brush-size" type="range" min="2" max="18" value="7"></label><button class="btn secondary" id="clear-drawing">Borrar trazos</button></div><div class="row"><button class="btn full" id="finish-drawing">Terminar turno</button></div><div class="status" id="drawing-status"></div></div></section>`;
-  } else if (role === 'player' && !isArtistTeam) {
-    controls = `<section class="card" style="margin-top:16px"><div class="eyebrow">Adivina en equipo</div><p>Escribe la palabra que representa el dibujo. Si cuesta adivinarla, se irán revelando letras como pista.</p><div class="row"><input id="guess-input" class="input" maxlength="50" placeholder="Escribe tu respuesta"><button class="btn" id="send-guess">Enviar</button></div><div class="status" id="guess-ready"></div><div class="status" id="guess-status"></div></section>`;
-  } else if (role === 'player') {
-    controls = `<section class="card center" style="margin-top:16px"><div class="status">${escapeHtml(artist?.name || 'Tu equipo')} está dibujando. Ayúdale con ideas, pero no envíes respuestas.</div></section>`;
-  }
-  const scoreboard = `<div class="team-list" style="margin-top:16px">${game.teams.map((team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div>`;
-  app.innerHTML = `${header}<section class="hero"><div class="eyebrow">Dibuja una palabra de cuidado y prevención</div><h1>${role === 'host' ? `Equipo ${game.drawerTeam + 1} está dibujando` : isDrawer ? 'Dibuja para que los demás adivinen' : isArtistTeam ? 'Apoya a quien dibuja' : 'Mira el tablero y adivina'}</h1><p>${role === 'host' ? 'El proyector muestra el tablero en vivo; la palabra se revela al terminar.' : `Dibuja: ${escapeHtml(artist?.name || 'participante')}.`}</p>${timer}<div class="pictionary-hint" id="pictionary-hint" aria-live="polite">${state.pictionaryHint ? `Pista: ${escapeHtml(state.pictionaryHint)}` : ''}</div><div class="status" id="guess-count">${game.guessCount} intentos</div></section><section class="card">${board}</section>${controls}${role === 'host' ? scoreboard : ''}`;
+  const scoreboard = `<aside class="pictionary-score-panel"><div class="pictionary-panel-title">Equipos <span>puntos</span></div>${game.teams.map((team) => `<div class="pictionary-score-row"><span><b>${team + 1}</b> Equipo ${team + 1}</span><strong>${state.scores?.[team] || 0}</strong></div>`).join('')}</aside>`;
+  let drawingTools = '';
+  if (isDrawer) drawingTools = `<section class="drawing-tools"><div class="pictionary-secret">Tu palabra: <strong>${escapeHtml(state.pictionaryWord)}</strong></div><p>Dibújala sin escribir letras ni la palabra. Puedes subir una foto de fondo.</p><label class="field-label" for="drawing-photo">Foto de fondo (opcional)</label><input class="input" id="drawing-photo" type="file" accept="image/*" capture="environment"><div class="tool-row"><label>Color <input id="brush-color" type="color" value="#20233a"></label><label>Grosor <input id="brush-size" type="range" min="2" max="18" value="7"></label><button class="btn secondary" id="clear-drawing">Borrar trazos</button><button class="btn" id="finish-drawing">Terminar turno</button></div><div class="status" id="drawing-status"></div></section>`;
+  else if (isArtistTeam) drawingTools = `<div class="pictionary-team-note">${escapeHtml(artist?.name || 'Tu equipo')} está dibujando. Ayúdale a pensar cómo representar la palabra.</div>`;
+  let chatControls = '';
+  if (role === 'player' && !isArtistTeam) chatControls = `<div class="pictionary-chat-compose"><input id="guess-input" class="input" maxlength="50" placeholder="Escribe tu respuesta"><button class="btn" id="send-guess">Enviar</button></div><div class="chat-help" id="guess-ready"></div><div class="chat-help" id="guess-status"></div>`;
+  else if (isArtistTeam) chatControls = `<div class="chat-help">Tu equipo dibuja este turno; los demás equipos están adivinando.</div>`;
+  const chat = `<aside class="pictionary-chat-panel"><div class="pictionary-panel-title">Intentos y puntos <span id="guess-count">${game.guessCount}</span></div><div class="pictionary-chat-list" id="pictionary-chat-list">${(game.chat || []).map(pictionaryChatEntryHtml).join('')}</div>${chatControls}</aside>`;
+  app.innerHTML = `${header}<section class="pictionary-hero"><div><div class="eyebrow">Pinturillo de prevención</div><h1>${role === 'host' ? `Dibuja el Equipo ${game.drawerTeam + 1}` : isDrawer ? 'Tu turno: dibuja' : isArtistTeam ? 'Tu equipo dibuja' : 'Mira el dibujo y adivina'}</h1></div><div class="pictionary-round-info">${timer}<div class="pictionary-hint ${state.pictionaryHint ? '' : 'hidden'}" id="pictionary-hint" aria-live="polite">${state.pictionaryHint ? `Pista: ${escapeHtml(state.pictionaryHint)}` : ''}</div></div></section><div class="pictionary-layout">${scoreboard}<section class="pictionary-board-panel">${board}${drawingTools}</section>${chat}</div>`;
   drawPictionaryBoard(state.pictionaryBoard);
   if (isDrawer) bindPictionaryDrawing();
   if (role === 'player' && !isArtistTeam) {
     const input = document.querySelector('#guess-input');
     const sendGuess = () => {
-      const guess = input.value.trim(); if (!guess) return;
+      const guess = input.value.trim(); if (!guess || input.disabled) return;
       send('pictionaryGuess', { guess }); input.value = '';
     };
     document.querySelector('#send-guess').onclick = sendGuess;
     input.onkeydown = (event) => { if (event.key === 'Enter') sendGuess(); };
     syncPictionaryGuessAvailability();
   }
+  const list = document.querySelector('#pictionary-chat-list'); if (list) list.scrollTop = list.scrollHeight;
   startCountdowns();
 }
 function syncPictionaryGuessAvailability() {
@@ -367,9 +382,13 @@ function renderPictionaryReveal() {
   const cycle = Math.floor(game.turnIndex / game.teams.length) + 1;
   const won = result.winnerTeam !== null && result.winnerTeam !== undefined;
   const board = `<canvas id="drawing-board" width="900" height="560" aria-label="Dibujo de la ronda" class="drawing-board cascade-current"></canvas>`;
-  const previousBoards = pictionaryHistory.map((item, index) => `<article class="cascade-card" style="--cascade-order:${index}"><div class="cascade-label">Vuelta ${item.cycle} · Equipo ${item.drawerTeam + 1}</div><img class="cascade-image" src="${item.image}" alt="Dibujo anterior: ${escapeHtml(item.word)}"><div class="cascade-caption">${escapeHtml(item.word)}</div></article>`).join('');
-  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Vuelta ${cycle} · palabra revelada</div></header><section class="hero"><div class="eyebrow">Dibujo de campaña</div><h1>${escapeHtml(result.word || '')}</h1><p>${won ? `¡Equipo ${result.winnerTeam + 1} adivinó! Equipo ${result.drawerTeam + 1} dibujó.` : `Dibujó el Equipo ${result.drawerTeam + 1}. ${result.reason === 'timeout' ? 'Se acabó el tiempo.' : 'No hubo respuesta correcta.'}`}</p></section><section class="cascade-section"><div class="cascade-heading">${pictionaryHistory.length ? 'Galería acumulada de dibujos' : 'Dibujo de este turno'} <span>${game.turnIndex + 1} dibujos</span></div><div class="cascade-gallery">${previousBoards}<article class="cascade-card cascade-card-current" style="--cascade-order:${pictionaryHistory.length}"><div class="cascade-label">Vuelta ${cycle} · Equipo ${result.drawerTeam + 1}</div>${board}<div class="cascade-caption">${escapeHtml(result.word || '')}</div></article></div></section><div class="team-list" style="margin-top:16px">${game.teams.map((team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div>${role === 'host' ? '<div class="center pictionary-actions"><button class="btn" id="pictionary-next">Siguiente equipo</button><button class="btn secondary" id="pictionary-end">Terminar partida</button></div>' : '<p class="footer">El facilitador dará paso al siguiente equipo.</p>'}`;
+  const previousBoards = pictionaryHistory.map((item, index) => `<article class="cascade-card" style="--cascade-order:${index}"><div class="cascade-label">Vuelta ${item.cycle} · Equipo ${item.drawerTeam + 1}</div><img class="cascade-image" src="${item.image}" alt="Dibujo anterior del Equipo ${item.drawerTeam + 1}"><div class="cascade-caption">${item.winnerTeam == null ? 'Sin aciertos' : `Equipo ${item.winnerTeam + 1} adivinó`}</div></article>`).join('');
+  const scoreRows = `<aside class="pictionary-score-panel"><div class="pictionary-panel-title">Equipos <span>puntos</span></div>${game.teams.map((team) => `<div class="pictionary-score-row"><span><b>${team + 1}</b> Equipo ${team + 1}</span><strong>${state.scores?.[team] || 0}</strong></div>`).join('')}</aside>`;
+  const chat = `<aside class="pictionary-chat-panel"><div class="pictionary-panel-title">Intentos y puntos <span>${game.guessCount}</span></div><div class="pictionary-chat-list" id="pictionary-chat-list">${(game.chat || []).map(pictionaryChatEntryHtml).join('')}</div></aside>`;
+  const gallery = pictionaryHistory.length ? `<section class="cascade-section"><div class="cascade-heading">Dibujos anteriores<span>${pictionaryHistory.length} turnos</span></div><div class="cascade-gallery">${previousBoards}</div></section>` : '';
+  app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Vuelta ${cycle} · turno terminado</div></header><section class="pictionary-hero"><div><div class="eyebrow">Dibujo de campaña</div><h1>${won ? `¡Equipo ${result.winnerTeam + 1} adivinó!` : 'Turno completado'}</h1><p>${won ? `Equipo ${result.winnerTeam + 1} suma 2 puntos y el Equipo ${result.drawerTeam + 1}, que dibujó, suma 1.` : `Dibujó el Equipo ${result.drawerTeam + 1}. ${result.reason === 'timeout' ? 'Se acabó el tiempo.' : 'No hubo aciertos.'}`}</p></div></section><div class="pictionary-layout">${scoreRows}<section class="pictionary-board-panel">${board}</section>${chat}</div>${gallery}${role === 'host' ? '<div class="center pictionary-actions"><button class="btn" id="pictionary-next">Siguiente equipo</button><button class="btn secondary" id="pictionary-end">Terminar partida</button></div>' : '<p class="footer">El facilitador dará paso al siguiente equipo.</p>'}`;
   drawPictionaryBoard(state.pictionaryBoard);
+  const chatList = document.querySelector('#pictionary-chat-list'); if (chatList) chatList.scrollTop = chatList.scrollHeight;
   document.querySelector('#pictionary-next')?.addEventListener('click', () => send('pictionaryNext'));
   document.querySelector('#pictionary-end')?.addEventListener('click', () => send('pictionaryEnd'));
 }
@@ -411,7 +430,7 @@ function renderReveal() {
 }
 function renderEnd() {
   const teamCount = state.teamCount || 2;
-  const pictionaryGallery = state.mode === 'pictionary' && pictionaryHistory.length ? `<section class="cascade-section"><div class="cascade-heading">Dibujos de la partida<span>${pictionaryHistory.length} turnos</span></div><div class="cascade-gallery">${pictionaryHistory.map((item, index) => `<article class="cascade-card" style="--cascade-order:${index}"><div class="cascade-label">Vuelta ${item.cycle} · Equipo ${item.drawerTeam + 1}</div><img class="cascade-image" src="${item.image}" alt="Dibujo de ${escapeHtml(item.word)}"><div class="cascade-caption">${escapeHtml(item.word)}</div></article>`).join('')}</div></section>` : '';
+  const pictionaryGallery = state.mode === 'pictionary' && pictionaryHistory.length ? `<section class="cascade-section"><div class="cascade-heading">Dibujos de la partida<span>${pictionaryHistory.length} turnos</span></div><div class="cascade-gallery">${pictionaryHistory.map((item, index) => `<article class="cascade-card" style="--cascade-order:${index}"><div class="cascade-label">Vuelta ${item.cycle} · Equipo ${item.drawerTeam + 1}</div><img class="cascade-image" src="${item.image}" alt="Dibujo del Equipo ${item.drawerTeam + 1}"><div class="cascade-caption">${item.winnerTeam == null ? 'Sin aciertos' : `Equipo ${item.winnerTeam + 1} adivinó`}</div></article>`).join('')}</div></section>` : '';
   app.innerHTML = `<header class="top"><div class="brand">VOCES <span>EN EQUIPO</span></div><div class="tag">Cierre</div></header><section class="hero"><div class="eyebrow">Gracias por participar</div><h1>Una comunidad que escucha y protege.</h1><p>Puedes poner límites, pedir ayuda y acompañar a alguien sin juzgar.</p></section>${pictionaryGallery}<section class="card center"><div class="team-list">${Array.from({ length: teamCount }, (_, team) => `<div class="team"><h3>Equipo ${team + 1}</h3><div class="score">${state.scores?.[team] || 0}</div></div>`).join('')}</div><p>Si necesitas apoyo, acércate en privado al orientador o adulto responsable de protección de tu institución.</p>${role==='host'?'<button class="btn" id="again">Reiniciar partida</button>':''}</section>`;
   document.querySelector('#again')?.addEventListener('click', () => {
     if (role !== 'host') return;
